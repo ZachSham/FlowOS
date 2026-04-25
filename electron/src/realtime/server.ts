@@ -10,6 +10,7 @@ export function createRealtimeServer(port: number) {
   const wss = new WebSocketServer({ port });
   let lastSnapshot: VsCodeSnapshot | null = null;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+  let isProcessing = false;
 
   function pushToWindows(channel: string, payload?: unknown): void {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -20,24 +21,30 @@ export function createRealtimeServer(port: number) {
   }
 
   async function processSnapshot(snapshot: VsCodeSnapshot): Promise<void> {
-    pushToWindows(ipcChannels.stateLoading);
+    if (isProcessing) return;
+    isProcessing = true;
+    try {
+      pushToWindows(ipcChannels.stateLoading);
 
-    const insight = await analyzeSnapshot({
-      activeFile: snapshot.activeFile,
-      openTabs: snapshot.openTabs,
-      diagnostics: snapshot.diagnostics,
-      recentEdits: snapshot.recentCommands,
-    });
-
-    if (insight) {
-      pushToWindows(ipcChannels.stateUpdated, {
-        taskState: insight.taskState,
-        suggestions: insight.suggestions,
-        reasoning: insight.reasoning,
-        hasError: false,
+      const insight = await analyzeSnapshot({
+        activeFile: snapshot.activeFile,
+        openTabs: snapshot.openTabs,
+        diagnostics: snapshot.diagnostics,
+        recentEdits: snapshot.recentCommands,
       });
-    } else {
-      pushToWindows(ipcChannels.stateUpdated, { hasError: true });
+
+      if (insight) {
+        pushToWindows(ipcChannels.stateUpdated, {
+          taskState: insight.taskState,
+          suggestions: insight.suggestions,
+          reasoning: insight.reasoning,
+          hasError: false,
+        });
+      } else {
+        pushToWindows(ipcChannels.stateUpdated, { hasError: true });
+      }
+    } finally {
+      isProcessing = false;
     }
   }
 
