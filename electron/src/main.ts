@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { app, BrowserWindow, ipcMain } from "electron";
 import { ensureDatabase } from "@flowos/db";
 import { demoSuggestions, demoTaskState, type Suggestion, type TaskState } from "@flowos/shared";
