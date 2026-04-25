@@ -1,11 +1,6 @@
 {
   "files": [],
   "references": [
-    { "path": "./shared" },
-    { "path": "./db" },
-    { "path": "./electron" },
-    { "path": "./renderer" },
-    { "path": "./extension-vscode" }
+    { "path": "./electron" }
   ]
 }
-

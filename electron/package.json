@@ -6,12 +6,15 @@
   "main": "./dist/main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "start": "wait-on file:dist/main.js && electron dist/main.js",
+    "dev": "concurrently -k \"npm:watch\" \"npm:start\"",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "@flowos/db": "*",
-    "@flowos/shared": "*",
-    "ws": "^8.18.2"
+  "dependencies": {},
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "electron": "^36.2.0",
+    "wait-on": "^8.0.3"
   }
 }
-

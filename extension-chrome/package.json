@@ -1,14 +1,11 @@
 {
   "name": "@flowos/extension-chrome",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/background.ts --bundle --format=esm --outfile=dist/background.js && node scripts/copy-manifest.mjs",
+    "build": "esbuild src/background.ts --bundle --format=esm --outfile=dist/background.js && esbuild src/contentScript.ts --bundle --format=esm --outfile=dist/contentScript.js && node scripts/copy-manifest.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
-  },
-  "dependencies": {
-    "@flowos/shared": "*"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.323",
@@ -16,4 +13,3 @@
     "typescript": "^5.8.3"
   }
 }
-
