@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "process",
+      "command": "/bin/zsh",
+      "args": ["-lc", "npm run compile"],
+      "label": "flowos: compile",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$esbuild"
+    }
+  ]
+}

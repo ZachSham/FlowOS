@@ -1,7 +1,10 @@
 import { BrowserWindow } from "electron";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const rendererUrl = process.env.FLOWOS_RENDERER_URL ?? "http://127.0.0.1:5173";
+const thisDir = dirname(fileURLToPath(import.meta.url));
+const preloadPath = join(thisDir, "..", "preload.js");
 
 function resolveRendererEntry(view: "main" | "sidebar") {
   return `${rendererUrl}?view=${view}`;
@@ -15,7 +18,7 @@ export function createMainWindow() {
     minHeight: 640,
     title: "FlowOS",
     webPreferences: {
-      preload: join(process.cwd(), "electron", "dist", "preload.js"),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -37,7 +40,7 @@ export function createSidebarWindow() {
     alwaysOnTop: true,
     skipTaskbar: false,
     webPreferences: {
-      preload: join(process.cwd(), "electron", "dist", "preload.js"),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -46,4 +49,3 @@ export function createSidebarWindow() {
   void sidebarWindow.loadURL(resolveRendererEntry("sidebar"));
   return sidebarWindow;
 }
-

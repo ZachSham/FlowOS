@@ -11,17 +11,32 @@ const port = Number(process.env.FLOWOS_WS_PORT ?? "7331");
 
 let taskState: TaskState = demoTaskState;
 let suggestions: Suggestion[] = demoSuggestions;
+let reasoning: string | undefined;
+let hasError = false;
 let mainWindow: Electron.BrowserWindow | null = null;
 let sidebarWindow: Electron.BrowserWindow | null = null;
 let db: ReturnType<typeof ensureDatabase> | null = null;
 
 async function bootstrap() {
   db = ensureDatabase();
-  createRealtimeServer(port);
+  createRealtimeServer(port, {
+    onStateUpdated: (state) => {
+      hasError = state.hasError;
+      if (state.hasError) {
+        reasoning = undefined;
+        return;
+      }
+      if (state.taskState) taskState = state.taskState;
+      if (state.suggestions) suggestions = state.suggestions;
+      reasoning = state.reasoning;
+    },
+  });
 
   ipcMain.handle(ipcChannels.getBootstrapState, () => ({
     taskState,
     suggestions,
+    reasoning,
+    hasError,
     websocketPort: port,
     swiftHelper: getSwiftHelperStatus()
   }));

@@ -6,6 +6,8 @@ import { SuggestionList } from "./components/SuggestionList";
 type BootstrapState = {
   taskState: TaskState;
   suggestions: Suggestion[];
+  reasoning?: string;
+  hasError?: boolean;
   websocketPort: number;
   swiftHelper: { connected: boolean; socketPath: string };
 };
@@ -49,6 +51,8 @@ export function App() {
     void window.flowos.getBootstrapState().then((state) => {
       setTaskState(state.taskState);
       setSuggestions(state.suggestions);
+      setReasoning(state.reasoning);
+      setHasError(Boolean(state.hasError));
       setWebsocketPort(state.websocketPort);
     }).catch(() => setHasError(true));
 
