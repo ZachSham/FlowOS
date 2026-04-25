@@ -10,6 +10,8 @@ type BootstrapState = {
   swiftHelper: { connected: boolean; socketPath: string };
 };
 
+// Mirrors LiveState in electron/src/preload.ts — cannot import across Electron's
+// preload boundary. Move to @flowos/shared if shape needs to be shared widely.
 type LiveState = {
   taskState?: TaskState;
   suggestions?: Suggestion[];
@@ -48,7 +50,7 @@ export function App() {
       setTaskState(state.taskState);
       setSuggestions(state.suggestions);
       setWebsocketPort(state.websocketPort);
-    });
+    }).catch(() => setHasError(true));
 
     const cleanupLoading = window.flowos.onStateLoading(() => {
       setIsLoading(true);
@@ -59,6 +61,7 @@ export function App() {
       setIsLoading(false);
       if (state.hasError) {
         setHasError(true);
+        setReasoning(undefined);
         return;
       }
       setHasError(false);
@@ -91,7 +94,7 @@ export function App() {
           <h1 className="mt-2 text-xl font-semibold text-white">{taskState.title}</h1>
           <p className="mt-2 text-sm text-white/65">{taskState.substate}</p>
           <div className="mt-4 flex items-center justify-between text-xs text-white/45">
-            <span>{taskState.mode}</span>
+            <span>{taskState.mode} · {Math.round(taskState.confidence * 100)}%</span>
             <span>WS {websocketPort}</span>
           </div>
         </div>
