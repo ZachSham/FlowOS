@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "FlowOS Chrome Bridge",
+  "version": "0.1.0",
+  "description": "Streams Chrome tab context into the local FlowOS realtime server.",
+  "permissions": ["tabs", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "FlowOS"
+  }
+}
+

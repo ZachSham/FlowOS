@@ -1,0 +1,30 @@
+{
+  "name": "flowos",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "electron",
+    "renderer",
+    "extension-chrome",
+    "extension-vscode",
+    "shared",
+    "db"
+  ],
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:shared\" \"npm:dev:db\" \"npm:dev:electron\" \"npm:dev:renderer\" \"npm:dev:app\"",
+    "dev:shared": "npm run build --workspace @flowos/shared -- --watch",
+    "dev:db": "npm run build --workspace @flowos/db -- --watch",
+    "dev:electron": "npm run build --workspace @flowos/electron -- --watch",
+    "dev:renderer": "npm run dev --workspace @flowos/renderer",
+    "dev:app": "wait-on tcp:5173 file:electron/dist/main.js && electron electron/dist/main.js",
+    "build": "npm run build --workspace @flowos/shared && npm run build --workspace @flowos/db && npm run build --workspace @flowos/electron && npm run build --workspace @flowos/renderer && npm run build --workspace @flowos/extension-chrome && npm run build --workspace @flowos/extension-vscode",
+    "typecheck": "npm run build --workspace @flowos/shared && npm run build --workspace @flowos/db && npm run typecheck --workspace @flowos/electron && npm run typecheck --workspace @flowos/renderer && npm run typecheck --workspace @flowos/extension-chrome && npm run typecheck --workspace @flowos/extension-vscode && npm run typecheck --workspace @flowos/shared && npm run typecheck --workspace @flowos/db"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.1",
+    "concurrently": "^9.1.2",
+    "electron": "^36.2.0",
+    "typescript": "^5.8.3",
+    "wait-on": "^8.0.3"
+  }
+}

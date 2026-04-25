@@ -1,0 +1,33 @@
+{
+  "name": "@flowos/extension-vscode",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/extension.js",
+  "engines": {
+    "vscode": "^1.99.0"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "flowos.pushSnapshot",
+        "title": "FlowOS: Push Snapshot"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@flowos/shared": "*",
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.1",
+    "@types/vscode": "^1.99.1",
+    "typescript": "^5.8.3"
+  }
+}
