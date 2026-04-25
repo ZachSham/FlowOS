@@ -25,6 +25,18 @@ The JSON must match this exact shape:
 
 Return exactly 3 suggestions. Prefer file suggestions when errors are present. Use lower confidence when context is ambiguous.`;
 
+let _client: Anthropic | null = null;
+
+function getClient(): Anthropic | null {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.warn("[claude] ANTHROPIC_API_KEY not set — skipping analysis");
+    return null;
+  }
+  if (!_client) _client = new Anthropic({ apiKey });
+  return _client;
+}
+
 export interface SnapshotInput {
   activeFile?: string;
   openTabs: string[];
@@ -56,13 +68,8 @@ interface RawClaudeResponse {
 export async function analyzeSnapshot(
   snapshot: SnapshotInput
 ): Promise<ClaudeInsight | null> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.warn("[claude] ANTHROPIC_API_KEY not set — skipping analysis");
-    return null;
-  }
-
-  const client = new Anthropic({ apiKey });
+  const client = getClient();
+  if (!client) return null;
 
   try {
     const response = await client.messages.create({
@@ -80,7 +87,19 @@ export async function analyzeSnapshot(
 
     const text =
       response.content[0]?.type === "text" ? response.content[0].text : "";
+    if (!text) {
+      console.warn("[claude] empty response content");
+      return null;
+    }
     const parsed = JSON.parse(text) as RawClaudeResponse;
+    if (
+      typeof parsed.title !== "string" ||
+      !Array.isArray(parsed.suggestions) ||
+      typeof parsed.reasoning !== "string"
+    ) {
+      console.error("[claude] response failed shape validation", parsed);
+      return null;
+    }
 
     const taskState: TaskState = {
       id: `task-${Date.now()}`,
