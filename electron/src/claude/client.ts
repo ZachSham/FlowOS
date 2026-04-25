@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import type { TaskState, Suggestion, FlowMode } from "@flowos/shared";
 
 const SYSTEM_PROMPT = `You are FlowOS, an AI that observes a developer's VS Code state and infers what they are working on.
@@ -25,15 +25,15 @@ The JSON must match this exact shape:
 
 Return exactly 3 suggestions. Prefer file suggestions when errors are present. Use lower confidence when context is ambiguous.`;
 
-let _client: Anthropic | null = null;
+let _client: OpenAI | null = null;
 
-function getClient(): Anthropic | null {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+function getClient(): OpenAI | null {
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    console.warn("[claude] ANTHROPIC_API_KEY not set — skipping analysis");
+    console.warn("[ai] OPENAI_API_KEY not set — skipping analysis");
     return null;
   }
-  if (!_client) _client = new Anthropic({ apiKey });
+  if (!_client) _client = new OpenAI({ apiKey });
   return _client;
 }
 
@@ -50,7 +50,7 @@ export interface ClaudeInsight {
   reasoning: string;
 }
 
-interface RawClaudeResponse {
+interface RawResponse {
   title: string;
   mode: FlowMode;
   substate: string;
@@ -72,32 +72,28 @@ export async function analyzeSnapshot(
   if (!client) return null;
 
   try {
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
+    const response = await client.chat.completions.create({
+      model: "gpt-4o",
       max_tokens: 1024,
-      system: [
-        {
-          type: "text",
-          text: SYSTEM_PROMPT,
-          cache_control: { type: "ephemeral" },
-        },
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: buildUserContent(snapshot) },
       ],
-      messages: [{ role: "user", content: buildUserContent(snapshot) }],
     });
 
-    const text =
-      response.content[0]?.type === "text" ? response.content[0].text : "";
+    const text = response.choices[0]?.message.content ?? "";
     if (!text) {
-      console.warn("[claude] empty response content");
+      console.warn("[ai] empty response content");
       return null;
     }
-    const parsed = JSON.parse(text) as RawClaudeResponse;
+    const parsed = JSON.parse(text) as RawResponse;
     if (
       typeof parsed.title !== "string" ||
       !Array.isArray(parsed.suggestions) ||
       typeof parsed.reasoning !== "string"
     ) {
-      console.error("[claude] response failed shape validation", parsed);
+      console.error("[ai] response failed shape validation", parsed);
       return null;
     }
 
@@ -123,7 +119,7 @@ export async function analyzeSnapshot(
 
     return { taskState, suggestions, reasoning: parsed.reasoning };
   } catch (error) {
-    console.error("[claude] error:", error);
+    console.error("[ai] error:", error);
     return null;
   }
 }

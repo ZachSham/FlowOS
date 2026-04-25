@@ -9,10 +9,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.91.1",
     "@flowos/db": "*",
     "@flowos/shared": "*",
     "dotenv": "^17.4.2",
+    "openai": "^6.34.0",
     "ws": "^8.18.2"
   }
 }
