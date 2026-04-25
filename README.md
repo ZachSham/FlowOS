@@ -69,7 +69,7 @@ The app watches the current working context across windows, browser tabs, termin
 ### Browser control
 
 - Chrome Extension (MV3): read tabs, active tab, pinned state, and eventually grouping / parking behavior
-- `ws`: local WebSocket transport between Electron and external extensions on port `7331`
+- have a server always runnign listeining for get requests (request sends info about data on users laptops and gets a response if it should change anythign and what tabs to group together)
 
 ### AI layer
 
