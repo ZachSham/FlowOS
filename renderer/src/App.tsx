@@ -82,34 +82,44 @@ export function App() {
 
   if (viewMode === "sidebar") {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,#1e293b_0%,#0f172a_48%,#020617_100%)] px-4 py-5 text-ink">
-        <div className={`mb-5 rounded-3xl border border-orange-400/20 bg-black/20 p-4 transition-opacity ${isLoading ? "opacity-60" : "opacity-100"}`}>
-          <div className="flex items-center justify-between">
-            <div className="text-[11px] uppercase tracking-[0.24em] text-orange-300/75">Flow State</div>
-            <div className="flex items-center gap-2">
-              {isLoading && <span className="text-[10px] text-white/40 animate-pulse">thinking…</span>}
-              {hasError && <span className="text-[10px] text-orange-400/80">⚠ offline</span>}
-            </div>
-          </div>
-          <h1 className="mt-2 text-xl font-semibold text-white">{taskState.title}</h1>
-          <p className="mt-2 text-sm text-white/65">{taskState.substate}</p>
-          <div className="mt-4 flex items-center justify-between text-xs text-white/45">
-            <span>{taskState.mode} · {Math.round(taskState.confidence * 100)}%</span>
-            <span>WS {websocketPort}</span>
-          </div>
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top,#1e293b_0%,#0f172a_48%,#020617_100%)] text-ink">
+        {/* Drag handle — grab here to move the sidebar window */}
+        <div
+          style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+          className="flex h-7 w-full cursor-grab items-center justify-center active:cursor-grabbing"
+        >
+          <div className="h-1 w-10 rounded-full bg-white/20" />
         </div>
 
-        {reasoning && (
-          <div className="mb-5 rounded-3xl border border-white/10 bg-white/5 p-4">
-            <div className="mb-2 text-[11px] uppercase tracking-[0.24em] text-white/45">Why FlowOS thinks this</div>
-            <p className="text-sm leading-6 text-white/60">{reasoning}</p>
+        <div className="px-4 pb-5">
+          <div className={`mb-5 rounded-3xl border border-orange-400/20 bg-black/20 p-4 transition-opacity ${isLoading ? "opacity-60" : "opacity-100"}`}>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] uppercase tracking-[0.24em] text-orange-300/75">Flow State</div>
+              <div className="flex items-center gap-2">
+                {isLoading && <span className="text-[10px] text-white/40 animate-pulse">thinking…</span>}
+                {hasError && <span className="text-[10px] text-orange-400/80">⚠ offline</span>}
+              </div>
+            </div>
+            <h1 className="mt-2 text-xl font-semibold text-white">{taskState.title}</h1>
+            <p className="mt-2 text-sm text-white/65">{taskState.substate}</p>
+            <div className="mt-4 flex items-center justify-between text-xs text-white/45">
+              <span>{taskState.mode} · {Math.round(taskState.confidence * 100)}%</span>
+              <span>WS {websocketPort}</span>
+            </div>
           </div>
-        )}
 
-        <div className="space-y-4">
-          <SuggestionList heading="Suggested Files" items={fileSuggestions} />
-          <SuggestionList heading="Suggested Commands" items={commandSuggestions} />
-          <SuggestionList heading="Suggested Tabs" items={tabSuggestions} />
+          {reasoning && (
+            <div className="mb-5 rounded-3xl border border-white/10 bg-white/5 p-4">
+              <div className="mb-2 text-[11px] uppercase tracking-[0.24em] text-white/45">Why FlowOS thinks this</div>
+              <p className="text-sm leading-6 text-white/60">{reasoning}</p>
+            </div>
+          )}
+
+          <div className="space-y-4">
+            <SuggestionList heading="Suggested Files" items={fileSuggestions} />
+            <SuggestionList heading="Suggested Commands" items={commandSuggestions} />
+            <SuggestionList heading="Suggested Tabs" items={tabSuggestions} />
+          </div>
         </div>
       </div>
     );

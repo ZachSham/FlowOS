@@ -7,18 +7,69 @@
     "vscode": "^1.99.0"
   },
   "activationEvents": [
-    "onStartupFinished"
+    "onStartupFinished",
+    "onCommand:flowos.enterCodingMode",
+    "onCommand:flowos.openProjectAndEnterCodingMode",
+    "onCommand:flowos.generateContextPack"
   ],
   "contributes": {
     "commands": [
       {
-        "command": "flowos.pushSnapshot",
-        "title": "FlowOS: Push Snapshot"
+        "command": "flowos.enterCodingMode",
+        "title": "FlowOS: Enter Coding Mode"
+      },
+      {
+        "command": "flowos.openProjectAndEnterCodingMode",
+        "title": "FlowOS: Open Project And Enter Coding Mode"
+      },
+      {
+        "command": "flowos.generateContextPack",
+        "title": "FlowOS: Generate Context Pack"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "FlowOS",
+      "properties": {
+        "flowos.wsHost": {
+          "type": "string",
+          "default": "localhost",
+          "description": "Host used by the FlowOS VS Code extension websocket client."
+        },
+        "flowos.wsPort": {
+          "type": "number",
+          "default": 7331,
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Port used by the FlowOS VS Code extension websocket client."
+        },
+        "flowos.autoEnterCodingModeOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically enters coding mode when the extension activates."
+        },
+        "flowos.promptForProjectOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "If no folder is open, prompt to pick a project folder on startup."
+        },
+        "flowos.openFirstCodeFileOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open a likely code file before entering coding mode."
+        },
+        "flowos.reopenLastProjectOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reopen the last FlowOS project automatically if no folder is open."
+        }
+      }
+    }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "compile": "esbuild ./src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "watch": "npm run compile -- --watch",
+    "vscode:prepublish": "npm run compile",
+    "build": "npm run compile",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -28,6 +79,8 @@
   "devDependencies": {
     "@types/node": "^24.0.1",
     "@types/vscode": "^1.99.1",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.25.11",
     "typescript": "^5.8.3"
   }
 }
