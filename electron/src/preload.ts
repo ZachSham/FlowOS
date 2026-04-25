@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import { ipcChannels } from "./ipc/channels.js";
 import type { TaskState, Suggestion } from "@flowos/shared";
 
-export interface LiveState {
+interface LiveState {
   taskState?: TaskState;
   suggestions?: Suggestion[];
   reasoning?: string;
@@ -13,12 +13,15 @@ contextBridge.exposeInMainWorld("flowos", {
   getBootstrapState: () => ipcRenderer.invoke(ipcChannels.getBootstrapState),
 
   onStateUpdate: (callback: (state: LiveState) => void) => {
-    ipcRenderer.on(ipcChannels.stateUpdated, (_event, state: LiveState) =>
-      callback(state)
-    );
+    const handler = (_event: Electron.IpcRendererEvent, state: LiveState) =>
+      callback(state);
+    ipcRenderer.on(ipcChannels.stateUpdated, handler);
+    return () => ipcRenderer.removeListener(ipcChannels.stateUpdated, handler);
   },
 
   onStateLoading: (callback: () => void) => {
-    ipcRenderer.on(ipcChannels.stateLoading, () => callback());
+    const handler = () => callback();
+    ipcRenderer.on(ipcChannels.stateLoading, handler);
+    return () => ipcRenderer.removeListener(ipcChannels.stateLoading, handler);
   },
 });
