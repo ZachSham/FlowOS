@@ -395,8 +395,8 @@ final class NativeHelperProcess {
             return bundleIds.contains(app.bundleIdentifier ?? "")
         }
 
-        return try apps.flatMap { app in
-            try windowSnapshots(for: app)
+        return apps.flatMap { app in
+            (try? windowSnapshots(for: app)) ?? []
         }
     }
 
@@ -408,14 +408,18 @@ final class NativeHelperProcess {
         }
 
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        let focusedWindow = try copyElementAttribute(appElement, attribute: kAXFocusedWindowAttribute)
+        let focusedWindow = try? copyElementAttribute(appElement, attribute: kAXFocusedWindowAttribute)
 
-        guard let window = focusedWindow else {
+        guard let focusedWindowElement = focusedWindow else {
             return nil
         }
 
-        let windows = try windowSnapshots(for: app)
-        let focusedTitle = copyStringAttribute(window, attribute: kAXTitleAttribute) ?? ""
+        let windows = (try? windowSnapshots(for: app)) ?? []
+        guard !windows.isEmpty else {
+            return nil
+        }
+
+        let focusedTitle = copyStringAttribute(focusedWindowElement, attribute: kAXTitleAttribute) ?? ""
 
         if let exact = windows.first(where: { ($0["title"] as? String) == focusedTitle }) {
             return exact
@@ -430,8 +434,8 @@ final class NativeHelperProcess {
         }
 
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        let focusedWindow = try copyElementAttribute(appElement, attribute: kAXFocusedWindowAttribute)
-        let mainWindow = try copyElementAttribute(appElement, attribute: kAXMainWindowAttribute)
+        let focusedWindow = try? copyElementAttribute(appElement, attribute: kAXFocusedWindowAttribute)
+        let mainWindow = try? copyElementAttribute(appElement, attribute: kAXMainWindowAttribute)
         let windows = try copyElementArrayAttribute(appElement, attribute: kAXWindowsAttribute)
 
         return windows.enumerated().map { index, window in
