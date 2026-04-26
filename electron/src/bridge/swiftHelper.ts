@@ -12,12 +12,6 @@ import type {
   NativeResponsePayloadMap
 } from "@flowos/shared";
 
-const execFileAsync = promisify(execFile);
-
-const currentFile = fileURLToPath(import.meta.url);
-const repoRoot = path.resolve(path.dirname(currentFile), "../../..");
-const defaultSwiftHelperPath = path.join(repoRoot, "swift-helper/.build/debug/FlowStateHelper");
-
 export interface SwiftHelperStatus {
   connected: boolean;
   transport: "stdio";
@@ -31,7 +25,7 @@ interface PendingRequest {
   timeout: NodeJS.Timeout;
 }
 
-interface NativeHelperBridge {
+export interface NativeHelperBridge {
   getStatus(): SwiftHelperStatus;
   onEvent(listener: (event: NativeEventEnvelope) => void): () => void;
   request<M extends NativeMethod>(

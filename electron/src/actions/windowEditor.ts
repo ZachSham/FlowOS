@@ -1,51 +1,68 @@
-import type {
-  NativeAction,
-  NativeWindowFrame,
-  NativeWindowPosition,
-  NativeWindowSize
-} from "@flowos/shared";
-import { executeSwiftNativeAction, type SwiftNativeActionResult } from "../bridge/swiftHelper.js";
+import type { NativeActionResult } from "@flowos/shared";
+import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
 
-export type NativeActionExecutor = (action: NativeAction) => Promise<SwiftNativeActionResult>;
+type NativeRequestExecutor = NativeHelperBridge["request"];
 
 export class WindowEditor {
-  constructor(private readonly execute: NativeActionExecutor = executeSwiftNativeAction) {}
+  constructor(private readonly request: NativeRequestExecutor) {}
 
-  setFrame(windowId: string, frame: NativeWindowFrame): Promise<SwiftNativeActionResult> {
-    return this.execute({
-      type: "native.window.setFrame",
+  setFrame(
+    windowId: string,
+    frame: { x: number; y: number; width: number; height: number }
+  ): Promise<NativeActionResult> {
+    return this.request("window.setFrame", {
       windowId,
-      frame
+      x: frame.x,
+      y: frame.y,
+      width: frame.width,
+      height: frame.height
     });
   }
 
-  move(windowId: string, position: NativeWindowPosition): Promise<SwiftNativeActionResult> {
-    return this.execute({
-      type: "native.window.move",
+  move(windowId: string, position: { x: number; y: number }): Promise<NativeActionResult> {
+    return this.request("window.move", {
       windowId,
-      position
+      x: position.x,
+      y: position.y
     });
   }
 
-  resize(windowId: string, size: NativeWindowSize): Promise<SwiftNativeActionResult> {
-    return this.execute({
-      type: "native.window.resize",
+  resize(
+    windowId: string,
+    size: { width: number; height: number }
+  ): Promise<NativeActionResult> {
+    return this.request("window.resize", {
       windowId,
-      size
+      width: size.width,
+      height: size.height
     });
   }
 
-  raise(windowId: string): Promise<SwiftNativeActionResult> {
-    return this.execute({
-      type: "native.window.raise",
-      windowId
-    });
+  raise(windowId: string): Promise<NativeActionResult> {
+    return this.request("window.raise", { windowId });
   }
 
-  activateApp(bundleId: string): Promise<SwiftNativeActionResult> {
-    return this.execute({
-      type: "native.app.activate",
-      bundleId
-    });
+  minimize(windowId: string): Promise<NativeActionResult> {
+    return this.request("window.minimize", { windowId });
   }
+
+  restore(windowId: string): Promise<NativeActionResult> {
+    return this.request("window.restore", { windowId });
+  }
+
+  activateApp(bundleId: string): Promise<NativeActionResult> {
+    return this.request("app.activate", { bundleId });
+  }
+
+  hideApp(bundleId: string): Promise<NativeActionResult> {
+    return this.request("app.hide", { bundleId });
+  }
+
+  unhideApp(bundleId: string): Promise<NativeActionResult> {
+    return this.request("app.unhide", { bundleId });
+  }
+}
+
+export function createWindowEditor(bridge: Pick<NativeHelperBridge, "request">) {
+  return new WindowEditor(bridge.request.bind(bridge) as NativeRequestExecutor);
 }
