@@ -22,6 +22,53 @@ export interface WindowBounds {
   height: number;
 }
 
+export interface NativeWindowPosition {
+  x: number;
+  y: number;
+}
+
+export interface NativeWindowSize {
+  width: number;
+  height: number;
+}
+
+export interface NativeWindowFrame extends NativeWindowPosition, NativeWindowSize {}
+
+export interface NativeWindowSetFrameAction {
+  type: "native.window.setFrame";
+  windowId: string;
+  frame: NativeWindowFrame;
+}
+
+export interface NativeWindowMoveAction {
+  type: "native.window.move";
+  windowId: string;
+  position: NativeWindowPosition;
+}
+
+export interface NativeWindowResizeAction {
+  type: "native.window.resize";
+  windowId: string;
+  size: NativeWindowSize;
+}
+
+export interface NativeWindowRaiseAction {
+  type: "native.window.raise";
+  windowId: string;
+}
+
+export interface NativeAppActivateAction {
+  type: "native.app.activate";
+  bundleId: string;
+}
+
+export type NativeAction =
+  | NativeWindowSetFrameAction
+  | NativeWindowMoveAction
+  | NativeWindowResizeAction
+  | NativeWindowRaiseAction
+  | NativeAppActivateAction;
+
 export interface WindowConfig {
   id: string;
   appName: string;
@@ -174,4 +221,3 @@ export const demoSuggestions: Suggestion[] = [
     source: "model"
   }
 ];
-

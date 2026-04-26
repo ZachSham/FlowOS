@@ -17,7 +17,10 @@
     "dev:electron": "npm run build --workspace @flowos/electron -- --watch",
     "dev:renderer": "npm run dev --workspace @flowos/renderer",
     "dev:app": "wait-on tcp:5173 file:electron/dist/main.js && electron electron/dist/main.js",
+    "build:swift-helper": "cd swift-helper && CLANG_MODULE_CACHE_PATH=.build/clang-module-cache swift build",
     "build": "npm run build --workspace @flowos/shared && npm run build --workspace @flowos/db && npm run build --workspace @flowos/electron && npm run build --workspace @flowos/renderer && npm run build --workspace @flowos/extension-chrome && npm run build --workspace @flowos/extension-vscode",
+    "test:native-actions": "npm run test:native-actions --workspace @flowos/electron",
+    "test:window-editor": "npm run build:swift-helper && npm run test:window-editor --workspace @flowos/electron",
     "typecheck": "npm run build --workspace @flowos/shared && npm run build --workspace @flowos/db && npm run typecheck --workspace @flowos/electron && npm run typecheck --workspace @flowos/renderer && npm run typecheck --workspace @flowos/extension-chrome && npm run typecheck --workspace @flowos/extension-vscode && npm run typecheck --workspace @flowos/shared && npm run typecheck --workspace @flowos/db"
   },
   "devDependencies": {
