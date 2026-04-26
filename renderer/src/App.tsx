@@ -77,8 +77,6 @@ const fallbackBootstrap: BootstrapState = {
   }
 };
 
-const PUSH_TO_TALK_KEY = "k";
-
 export function App() {
   const [bootstrap, setBootstrap] = useState<BootstrapState>(fallbackBootstrap);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -87,7 +85,6 @@ export function App() {
   const [voiceResult, setVoiceResult] = useState<FlowRunResult | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const keyboardMicActiveRef = useRef(false);
 
   useEffect(() => {
     if (!window.flowos) {
@@ -180,56 +177,6 @@ export function App() {
       document.removeEventListener("mousedown", handleGlobalMouseDown);
     };
   }, []);
-
-  useEffect(() => {
-    function isPushToTalkShortcut(event: KeyboardEvent) {
-      return event.metaKey && event.shiftKey && event.key.toLowerCase() === PUSH_TO_TALK_KEY;
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (!voiceSupported || isSubmitting || isListening || keyboardMicActiveRef.current) {
-        return;
-      }
-      if (!isPushToTalkShortcut(event)) {
-        return;
-      }
-
-      event.preventDefault();
-      keyboardMicActiveRef.current = true;
-      startListening();
-    }
-
-    function handleKeyUp(event: KeyboardEvent) {
-      if (!keyboardMicActiveRef.current || event.key.toLowerCase() !== PUSH_TO_TALK_KEY) {
-        return;
-      }
-
-      keyboardMicActiveRef.current = false;
-      if (isListening) {
-        event.preventDefault();
-        stopListening();
-      }
-    }
-
-    function handleWindowBlur() {
-      if (!keyboardMicActiveRef.current) {
-        return;
-      }
-      keyboardMicActiveRef.current = false;
-      if (isListening) {
-        stopListening();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", handleWindowBlur);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", handleWindowBlur);
-    };
-  }, [isListening, isSubmitting, startListening, stopListening, voiceSupported]);
 
   const handleVoiceButtonClick = useCallback(() => {
     if (isSubmitting) {
@@ -440,7 +387,7 @@ export function App() {
           This window only does two things: track app-level activity and run the LLM-driven develop
           mode layout against a fresh system snapshot.
         </p>
-        <p className="mt-2 text-xs text-white/55">Hold `Cmd+Shift+K` to talk. Release `K` to stop.</p>
+        <p className="mt-2 text-xs text-white/55">Press `Cmd+Shift+K` to toggle the mic from anywhere.</p>
 
         {!voiceSupported ? (
           <p className="mt-3 text-xs text-white/55">

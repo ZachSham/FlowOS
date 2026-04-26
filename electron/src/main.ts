@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, net } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, net, globalShortcut } from "electron";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -56,6 +56,7 @@ let swiftHelperStatus: SwiftHelperStatus = {
 const trackingSession = new TrackingSession();
 let lastFlowRun: FlowRunResult | null = null;
 let flowModeStatus: "idle" | "running" | "completed" | "failed" = "idle";
+const GLOBAL_MIC_SHORTCUT = "CommandOrControl+Shift+K";
 
 async function bootstrap() {
   const authToken = process.env.FLOWOS_EXTENSION_TOKEN?.trim();
@@ -264,6 +265,17 @@ async function bootstrap() {
     backgroundWindow.webContents.send(ipcChannels.trayAction, { action });
   }
 
+  function registerGlobalShortcuts() {
+    globalShortcut.unregisterAll();
+    const registered = globalShortcut.register(GLOBAL_MIC_SHORTCUT, () => {
+      sendTrayAction("toggle-mic");
+    });
+
+    if (!registered) {
+      console.error(`[flowos][shortcut] failed to register ${GLOBAL_MIC_SHORTCUT}`);
+    }
+  }
+
   function buildMenuBarMenu() {
     return Menu.buildFromTemplate([
       {
@@ -337,6 +349,7 @@ async function bootstrap() {
 
   refreshMenuBar();
   ensureBackgroundWindow();
+  registerGlobalShortcuts();
 }
 
 app.whenReady().then(() => {
@@ -359,6 +372,7 @@ app.on("activate", () => {
 });
 
 app.on("before-quit", () => {
+  globalShortcut.unregisterAll();
   menuBarTray?.destroy();
   menuBarTray = null;
   realtimeServer?.stop();
