@@ -562,11 +562,13 @@ final class NativeHelperProcess {
         details.append(contentsOf: cleared.details.filter { $0 != "No fullscreen windows found at location" })
         warnings.append(contentsOf: cleared.warnings)
 
-        try raiseWindow(window, app: app)
+        if let raiseWarning = try raiseWindow(window, app: app) {
+            warnings.append(raiseWarning)
+        }
         return (details, warnings)
     }
 
-    private func raiseWindow(_ window: AXUIElement, app: NSRunningApplication) throws {
+    private func raiseWindow(_ window: AXUIElement, app: NSRunningApplication) throws -> String? {
         try requireAccessibility()
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
 
@@ -579,11 +581,19 @@ final class NativeHelperProcess {
         _ = AXUIElementSetAttributeValue(window, kAXFocusedAttribute as CFString, kCFBooleanTrue)
 
         let result = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-        guard result == .success || result == .actionUnsupported else {
+        switch result {
+        case .success, .actionUnsupported:
+            clickWindowBestEffort(window)
+            return nil
+        case .cannotComplete:
+            // Common on Sidecar / iPad displays and windows on other Spaces:
+            // WindowServer can't synchronously raise the window, but the
+            // position/size writes that follow still succeed. Surface as a
+            // warning instead of aborting the whole action.
+            return "Could not raise window (\(result.rawValue)); other window changes will still be applied."
+        default:
             throw NativeHelperError.axFailure("Unable to raise window", result)
         }
-
-        clickWindowBestEffort(window)
     }
 
     private func clickWindowBestEffort(_ window: AXUIElement) {

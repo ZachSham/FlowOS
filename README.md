@@ -126,7 +126,7 @@ The current main branch is the bootstrap layer that lets the full app be built i
 - npm workspaces configured at the repo root
 - shared TypeScript base config
 - `.env.example` with:
-  - `ANTHROPIC_API_KEY`
+  - `OPENAI_API_KEY`
   - `FLOWOS_WS_PORT`
   - `FLOWOS_DB_PATH`
 

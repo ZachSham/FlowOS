@@ -89,8 +89,12 @@ function summarizeEvent(event: NativeEventEnvelope) {
     case "app.launched":
     case "app.terminated":
       return payload.app?.name ? `${event.event} ${payload.app.name}` : event.event;
-    case "display.changed":
-      return payload.display?.label ? `${event.event} ${payload.display.label}` : event.event;
+    case "display.changed": {
+      const change = (event.payload as { change?: string }).change;
+      const label = payload.display?.label;
+      const tag = change ? `display.${change}` : "display.changed";
+      return label ? `${tag} ${label}` : tag;
+    }
     default:
       return event.event;
   }

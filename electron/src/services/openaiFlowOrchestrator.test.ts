@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { buildVoicePrompt, AnthropicFlowOrchestrator } from "./anthropicFlowOrchestrator.js";
+import { buildVoicePrompt, OpenAIFlowOrchestrator } from "./openaiFlowOrchestrator.js";
 import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
 import type { TrackingSession } from "./trackingSession.js";
 
@@ -70,7 +70,7 @@ describe("buildVoicePrompt", () => {
   });
 });
 
-describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
+describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
   const savedKey = process.env["OPENAI_API_KEY"];
 
   beforeEach(() => {
@@ -84,7 +84,7 @@ describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
 
   it("returns ok:false when OPENAI_API_KEY is missing", async () => {
     delete process.env["OPENAI_API_KEY"];
-    const orchestrator = new AnthropicFlowOrchestrator({
+    const orchestrator = new OpenAIFlowOrchestrator({
       bridge: makeMockBridge(),
       trackingSession: makeMockSession()
     });
@@ -98,7 +98,7 @@ describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
     const mockFetch = vi.fn().mockResolvedValue(openAITextResponse("Done."));
     vi.stubGlobal("fetch", mockFetch);
 
-    const orchestrator = new AnthropicFlowOrchestrator({
+    const orchestrator = new OpenAIFlowOrchestrator({
       bridge: makeMockBridge(),
       trackingSession: makeMockSession()
     });
@@ -116,7 +116,7 @@ describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
     const mockFetch = vi.fn().mockResolvedValue(openAITextResponse("Done."));
     vi.stubGlobal("fetch", mockFetch);
 
-    const orchestrator = new AnthropicFlowOrchestrator({
+    const orchestrator = new OpenAIFlowOrchestrator({
       bridge: makeMockBridge(),
       trackingSession: makeMockSession()
     });
@@ -130,7 +130,7 @@ describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
     process.env["OPENAI_API_KEY"] = "test-key";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(openAITextResponse("Focused Terminal.")));
 
-    const orchestrator = new AnthropicFlowOrchestrator({
+    const orchestrator = new OpenAIFlowOrchestrator({
       bridge: makeMockBridge(),
       trackingSession: makeMockSession()
     });
@@ -149,7 +149,7 @@ describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
         : openAITextResponse("Activated Terminal.");
     }));
 
-    const orchestrator = new AnthropicFlowOrchestrator({
+    const orchestrator = new OpenAIFlowOrchestrator({
       bridge: makeMockBridge(),
       trackingSession: makeMockSession()
     });

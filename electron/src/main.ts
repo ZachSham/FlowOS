@@ -18,7 +18,7 @@ import { createRealtimeServer, type RealtimeServerHandle } from "./realtime/serv
 import { startSwiftHelperBridge, type SwiftHelperStatus } from "./bridge/swiftHelper.js";
 import { startElectronObservationService } from "./telemetry/electronObservationService.js";
 import { startNativeHelperTelemetry } from "./telemetry/nativeHelperTelemetry.js";
-import { AnthropicFlowOrchestrator, type FlowRunResult } from "./services/anthropicFlowOrchestrator.js";
+import { OpenAIFlowOrchestrator, type FlowRunResult } from "./services/openaiFlowOrchestrator.js";
 import { loadDotEnv } from "./services/loadEnv.js";
 import { TrackingSession } from "./services/trackingSession.js";
 import { createMainWindow } from "./windows/browserWindows.js";
@@ -79,7 +79,7 @@ async function bootstrap() {
     return await realtimeServer.requestChromeCommand(command, payload);
   });
 
-  observationService = await startElectronObservationService();
+  observationService = await startElectronObservationService({ trackingSession });
   nativeHelperBridge = await startSwiftHelperBridge();
   swiftHelperStatus = nativeHelperBridge.getStatus();
   nativeHelperBridge.onEvent((event) => {
@@ -90,9 +90,11 @@ async function bootstrap() {
     trackingSession.record(event);
   });
   nativeHelperTelemetry = await startNativeHelperTelemetry(nativeHelperBridge);
-  const flowOrchestrator = new AnthropicFlowOrchestrator({
+  const flowOrchestrator = new OpenAIFlowOrchestrator({
     bridge: nativeHelperBridge,
-    trackingSession
+    trackingSession,
+    getChromeSnapshot: () => latestChromeSnapshot,
+    runChromeCommand
   });
 
   ipcMain.handle(ipcChannels.getBootstrapState, () => ({
@@ -129,7 +131,7 @@ async function bootstrap() {
       lastFlowRun = {
         ok: false,
         summary: message,
-        model: process.env.ANTHROPIC_MODEL ?? null,
+        model: process.env.OPENAI_MODEL ?? null,
         snapshotTimestamp: null,
         toolCalls: [],
         toolResults: []
@@ -147,11 +149,13 @@ async function bootstrap() {
     const apiKey = process.env["OPENAI_API_KEY"]?.trim();
     if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
 
+    const audioBuffer = new ArrayBuffer(audioData.byteLength);
+    new Uint8Array(audioBuffer).set(audioData);
     const form = new FormData();
     form.append("model", "whisper-1");
     form.append(
       "file",
-      new Blob([audioData], { type: "audio/webm" }),
+      new Blob([audioBuffer], { type: "audio/webm" }),
       "recording.webm"
     );
 

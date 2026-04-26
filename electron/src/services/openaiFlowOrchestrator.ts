@@ -1,12 +1,26 @@
-import type { NativeActionResult, SystemSnapshot } from "@flowos/shared";
+import type {
+  ChromeCommand,
+  ChromeCommandPayloadMap,
+  ChromeCommandResultMap,
+  ChromeSnapshot,
+  NativeActionResult,
+  SystemSnapshot
+} from "@flowos/shared";
 import { net } from "electron";
 import { createWindowEditor } from "../actions/windowEditor.js";
 import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
 import type { TrackingSession } from "./trackingSession.js";
 
+type RunChromeCommand = <C extends ChromeCommand>(
+  command: C,
+  payload: ChromeCommandPayloadMap[C]
+) => Promise<ChromeCommandResultMap[C]>;
+
 interface FlowOrchestratorOptions {
   bridge: NativeHelperBridge;
   trackingSession: TrackingSession;
+  getChromeSnapshot?: () => ChromeSnapshot | null;
+  runChromeCommand?: RunChromeCommand;
 }
 
 interface FlowToolUse {
@@ -210,16 +224,114 @@ const TOOL_DEFINITIONS = [
         additionalProperties: false
       }
     }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "get_chrome_snapshot",
+      description:
+        "Fetch the latest Chrome tab snapshot from the browser extension. Call this BEFORE any Chrome tab manipulation. Returns tabs with id, title, url, windowId, groupId, pinned, active, etc.",
+      parameters: { type: "object", properties: {}, additionalProperties: false }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "focus_chrome_tab",
+      description: "Focus a specific Chrome tab by tabId and bring its window to the front.",
+      parameters: {
+        type: "object",
+        properties: { tabId: { type: "number" } },
+        required: ["tabId"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "group_chrome_tabs",
+      description:
+        "Create a new Chrome tab group containing the given tabIds. Optional title, color, and target windowId.",
+      parameters: {
+        type: "object",
+        properties: {
+          tabIds: { type: "array", items: { type: "number" }, minItems: 1 },
+          title: { type: "string" },
+          color: {
+            type: "string",
+            enum: ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"]
+          },
+          windowId: { type: "number" }
+        },
+        required: ["tabIds"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "ungroup_chrome_tabs",
+      description: "Remove the given Chrome tabIds from any tab group they belong to.",
+      parameters: {
+        type: "object",
+        properties: {
+          tabIds: { type: "array", items: { type: "number" }, minItems: 1 }
+        },
+        required: ["tabIds"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "pin_chrome_tab",
+      description: "Pin or unpin a Chrome tab by tabId.",
+      parameters: {
+        type: "object",
+        properties: {
+          tabId: { type: "number" },
+          pinned: { type: "boolean" }
+        },
+        required: ["tabId", "pinned"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "open_chrome_tab",
+      description:
+        "Open a new Chrome tab with the given url. Optional active, pinned, windowId. Prefer this over closing tabs.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          active: { type: "boolean" },
+          pinned: { type: "boolean" },
+          windowId: { type: "number" }
+        },
+        required: ["url"],
+        additionalProperties: false
+      }
+    }
   }
 ];
 
-export class AnthropicFlowOrchestrator {
+export class OpenAIFlowOrchestrator {
   private readonly bridge: NativeHelperBridge;
   private readonly trackingSession: TrackingSession;
+  private readonly getChromeSnapshot?: () => ChromeSnapshot | null;
+  private readonly runChromeCommand?: RunChromeCommand;
 
   constructor(options: FlowOrchestratorOptions) {
     this.bridge = options.bridge;
     this.trackingSession = options.trackingSession;
+    this.getChromeSnapshot = options.getChromeSnapshot;
+    this.runChromeCommand = options.runChromeCommand;
   }
 
   async enterDevelopFlowMode(): Promise<FlowRunResult> {
@@ -229,10 +341,12 @@ export class AnthropicFlowOrchestrator {
     }
 
     const trackingSummary = this.trackingSession.getSummary();
+    const initialSystemSnapshot = await this.safeSystemSnapshot();
+    const initialChromeSnapshot = this.safeChromeSnapshot();
     return this.runLoop({
       apiKey: apiKey!,
       model: model!,
-      initialPrompt: buildFlowModePrompt(trackingSummary),
+      initialPrompt: buildFlowModePrompt(trackingSummary, initialSystemSnapshot, initialChromeSnapshot),
       emptySummary: "Flow mode finished without a final summary."
     });
   }
@@ -243,12 +357,36 @@ export class AnthropicFlowOrchestrator {
       return { ok: false, summary: error, model: null, snapshotTimestamp: null, toolCalls: [], toolResults: [] };
     }
 
+    const trackingSummary = this.trackingSession.getSummary();
+    const initialSystemSnapshot = await this.safeSystemSnapshot();
+    const initialChromeSnapshot = this.safeChromeSnapshot();
     return this.runLoop({
       apiKey: apiKey!,
       model: model!,
-      initialPrompt: buildVoicePrompt(transcript),
+      initialPrompt: buildVoicePrompt(
+        transcript,
+        initialSystemSnapshot,
+        initialChromeSnapshot,
+        trackingSummary
+      ),
       emptySummary: "Voice command finished without a summary."
     });
+  }
+
+  private async safeSystemSnapshot(): Promise<SystemSnapshot | null> {
+    try {
+      return (await this.bridge.request("system.snapshot", {})) as SystemSnapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  private safeChromeSnapshot(): ChromeSnapshot | null {
+    try {
+      return this.getChromeSnapshot?.() ?? null;
+    } catch {
+      return null;
+    }
   }
 
   private async runLoop(input: {
@@ -266,7 +404,7 @@ export class AnthropicFlowOrchestrator {
     let snapshotTimestamp: string | null = null;
     let finalSummary = input.emptySummary;
 
-    for (let iteration = 0; iteration < 8; iteration += 1) {
+    for (let iteration = 0; iteration < 20; iteration += 1) {
       const response = await callOpenAI({ apiKey: input.apiKey, model: input.model, messages });
 
       messages.push({
@@ -342,9 +480,63 @@ export class AnthropicFlowOrchestrator {
         return windowEditor.hideApp(readString(input.bundleId, "bundleId"));
       case "unhide_app":
         return windowEditor.unhideApp(readString(input.bundleId, "bundleId"));
+      case "get_chrome_snapshot":
+        return this.getChromeSnapshot?.() ?? {
+          ok: false,
+          error: "Chrome snapshot is not available. The Chrome extension is not connected."
+        };
+      case "focus_chrome_tab":
+        return this.requireChromeRunner()(
+          "chrome.tab.focus",
+          { tabId: readNumber(input.tabId, "tabId") }
+        );
+      case "group_chrome_tabs":
+        return this.requireChromeRunner()(
+          "chrome.tabs.group",
+          {
+            tabIds: readNumberArray(input.tabIds, "tabIds"),
+            ...(typeof input.title === "string" ? { title: input.title } : {}),
+            ...(typeof input.color === "string"
+              ? { color: input.color as ChromeCommandPayloadMap["chrome.tabs.group"]["color"] }
+              : {}),
+            ...(typeof input.windowId === "number" ? { windowId: input.windowId } : {})
+          }
+        );
+      case "ungroup_chrome_tabs":
+        return this.requireChromeRunner()(
+          "chrome.tabs.ungroup",
+          { tabIds: readNumberArray(input.tabIds, "tabIds") }
+        );
+      case "pin_chrome_tab":
+        return this.requireChromeRunner()(
+          "chrome.tab.pin",
+          {
+            tabId: readNumber(input.tabId, "tabId"),
+            pinned: readBoolean(input.pinned, "pinned")
+          }
+        );
+      case "open_chrome_tab":
+        return this.requireChromeRunner()(
+          "chrome.tab.open",
+          {
+            url: readString(input.url, "url"),
+            ...(typeof input.active === "boolean" ? { active: input.active } : {}),
+            ...(typeof input.pinned === "boolean" ? { pinned: input.pinned } : {}),
+            ...(typeof input.windowId === "number" ? { windowId: input.windowId } : {})
+          }
+        );
       default:
         throw new Error(`Unsupported tool: ${name}`);
     }
+  }
+
+  private requireChromeRunner(): RunChromeCommand {
+    if (!this.runChromeCommand) {
+      throw new Error(
+        "Chrome command runner is not configured. Wire runChromeCommand into the orchestrator."
+      );
+    }
+    return this.runChromeCommand;
   }
 }
 
@@ -355,28 +547,61 @@ function resolveOpenAIConfig(): { apiKey?: string; model?: string; error?: strin
   return { apiKey, model };
 }
 
-export function buildVoicePrompt(transcript: string): string {
+const DISPLAY_GEOMETRY_RULES =
+  "Window geometry: coordinates are global across all displays - never assume (0,0). " +
+  "Always use the target display's visibleX/visibleY/visibleWidth/visibleHeight (not width/height) and scale per-display. " +
+  "For an R x C tile: cellW = visibleWidth/C, cellH = visibleHeight/R, slot(row,col) = { x: visibleX + col*cellW, y: visibleY + row*cellH, width: cellW, height: cellH }. " +
+  "Re-call get_system_snapshot if the snapshot may be stale (after moves/resizes, or display add/remove in tracking).";
+
+export function buildVoicePrompt(
+  transcript: string,
+  initialSystemSnapshot: SystemSnapshot | null = null,
+  initialChromeSnapshot: ChromeSnapshot | null = null,
+  trackingSummary: ReturnType<TrackingSession["getSummary"]> | null = null
+): string {
   return [
     `The user said: "${transcript}".`,
     "You are controlling the user's Mac through explicit tools only.",
-    "First inspect the current state using get_system_snapshot.",
+    `Initial system snapshot context: ${JSON.stringify(initialSystemSnapshot)}.`,
+    `Initial Chrome snapshot context: ${JSON.stringify(initialChromeSnapshot)}.`,
+    `Tracking summary context (recent app/space activity if user pressed Start Tracking): ${JSON.stringify(trackingSummary)}.`,
+    "Treat the snapshots above as the most recent ground truth; if you need fresher state call get_system_snapshot or get_chrome_snapshot.",
+    "Use the tracking summary only when the request references recent history (e.g. 'go back to what I was doing', 'reopen the last app'). If isTracking is false the summary will be empty - that is fine.",
+    DISPLAY_GEOMETRY_RULES,
+    "Before any Google Chrome tab manipulation (focus / group / ungroup / pin / open), call get_chrome_snapshot to confirm tab ids, urls, and window ids.",
+    "If the user refers to 'this window' or 'my current window', ignore the FlowOS control window and act on the likely active external user window.",
+    "Interpret 'other desktop' as the other physical display or monitor, not a macOS Space.",
+    "Never close or delete Chrome tabs. Avoid destructive actions.",
     "Then execute what the user asked for using only the provided tools.",
     "If the request is ambiguous, make a reasonable interpretation and proceed.",
-    "Finish with a short plain-English summary of what you did."
+    "If the user asks to split / tile / arrange N windows across a display, the windows must FILL that display: for each window call BOTH resize_window (to the cell size) AND move_window (to the cell origin). Do not just move windows at their current size, that leaves gaps and overlaps. If it asks for even splits, make sure the size for windows is truly split evenly so the user can see both properly. Use proper UX intution.",
+    "If a tool call fails for one target (e.g. one window can't be raised on a Sidecar/iPad display), do not abort: continue with the remaining targets and mention any skipped items in the final summary.",
+    "Finish with a short plain-English summary of what you did, including any per-target failures."
   ].join(" ");
 }
 
-function buildFlowModePrompt(trackingSummary: ReturnType<TrackingSession["getSummary"]>) {
+function buildFlowModePrompt(
+  trackingSummary: ReturnType<TrackingSession["getSummary"]>,
+  initialSystemSnapshot: SystemSnapshot | null,
+  initialChromeSnapshot: ChromeSnapshot | null
+) {
   return [
     "Enter Flow Mode for default develop mode.",
     "You are controlling the user's Mac through explicit tools only.",
     `Tracking summary context: ${JSON.stringify(trackingSummary)}.`,
-    "First inspect the current computer state using get_system_snapshot.",
+    `Initial system snapshot context: ${JSON.stringify(initialSystemSnapshot)}.`,
+    `Initial Chrome snapshot context: ${JSON.stringify(initialChromeSnapshot)}.`,
+    "Treat the snapshots above as the most recent ground truth; call get_system_snapshot or get_chrome_snapshot again only if you need fresher data after acting.",
+    DISPLAY_GEOMETRY_RULES,
     "Relevant development apps for this mode are: Cursor (com.todesktop.230313mzl4w4u92), Codex (com.openai.codex), GitHub Desktop (com.github.GitHubClient), and Terminal (com.apple.Terminal).",
-    "Arrange relevant development windows into a 2x2 layout on the primary display if possible.",
-    "Move irrelevant app windows to the second monitor if one exists. If no second monitor exists, hide irrelevant apps instead.",
-    "Make sure to minimize ALL irrelevant application or move them to another display so that the 4 focus applications show properly and evenly for the user",
+    "Arrange relevant development windows into a 2x2 layout on the primary display using the geometry rules above (compute slots from the primary display's visibleX/visibleY/visibleWidth/visibleHeight).",
+    "Move irrelevant app windows to the second monitor if one exists, sized to fit that display's visible rect; if no second monitor exists, hide irrelevant apps instead.",
+    "Make sure to minimize ALL irrelevant application or move them to another display so that the 4 focus applications show properly and evenly for the user.",
+    "Before any Google Chrome tab manipulation, call get_chrome_snapshot to refresh tab/group/window state, then organize tabs by topic into tab groups.",
+    "Consolidate related tabs across multiple Chrome windows when useful by grouping them into a chosen target window.",
+    "Never close or delete Chrome tabs whatsoever. Prefer grouping, ungrouping, pinning, focusing.",
     "Use the provided tool descriptions as the source of truth for available capabilities.",
+    "If a tool call fails for one target (e.g. one window can't be raised on a Sidecar/iPad display), do not abort: continue with the remaining targets and mention any skipped items in the final summary.",
     "After applying actions, call get_system_snapshot again to verify the layout and call more functions if necessary.",
     "Finish with a short plain-English summary of what you did and any gaps."
   ].join(" ");
@@ -475,7 +700,6 @@ async function callOpenAI(input: {
     },
     body: JSON.stringify({
       model: input.model,
-      max_tokens: 1400,
       messages: [{ role: "system", content: SYSTEM_PROMPT }, ...toOpenAIMessages(input.messages)],
       tools: TOOL_DEFINITIONS
     })
@@ -501,6 +725,25 @@ function readNumber(value: unknown, label: string) {
     throw new Error(`${label} must be a finite number`);
   }
   return value;
+}
+
+function readBoolean(value: unknown, label: string) {
+  if (typeof value !== "boolean") {
+    throw new Error(`${label} must be a boolean`);
+  }
+  return value;
+}
+
+function readNumberArray(value: unknown, label: string): number[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${label} must be a non-empty number array`);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== "number" || !Number.isFinite(entry)) {
+      throw new Error(`${label}[${index}] must be a finite number`);
+    }
+    return entry;
+  });
 }
 
 function isSystemSnapshot(value: unknown): value is SystemSnapshot {

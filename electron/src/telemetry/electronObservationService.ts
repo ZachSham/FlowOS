@@ -1,4 +1,6 @@
 import { app, screen, systemPreferences } from "electron";
+import type { DisplaySnapshot } from "@flowos/shared";
+import type { TrackingSession } from "../services/trackingSession.js";
 
 type SubscriptionCleanup = () => void;
 
@@ -6,8 +8,35 @@ interface ObservationService {
   stop(): void;
 }
 
-export async function startElectronObservationService(): Promise<ObservationService> {
+interface ObservationServiceOptions {
+  trackingSession?: TrackingSession;
+}
+
+export async function startElectronObservationService(
+  options: ObservationServiceOptions = {}
+): Promise<ObservationService> {
   const cleanups: SubscriptionCleanup[] = [];
+  const { trackingSession } = options;
+
+  function recordDisplay(
+    change: "added" | "removed" | "metrics",
+    display: Electron.Display,
+    changedMetrics?: string[]
+  ) {
+    if (!trackingSession) {
+      return;
+    }
+    trackingSession.record({
+      kind: "event",
+      event: "display.changed",
+      payload: {
+        timestamp: new Date().toISOString(),
+        change,
+        display: toDisplaySnapshot(display),
+        ...(changedMetrics ? { changedMetrics } : {})
+      }
+    });
+  }
 
   logEvent("helper", "electron observation service started", {
     platform: process.platform,
@@ -26,9 +55,11 @@ export async function startElectronObservationService(): Promise<ObservationServ
 
   screen.on("display-added", (_event, newDisplay) => {
     logEvent("display", "display added", simplifyDisplay(newDisplay));
+    recordDisplay("added", newDisplay);
   });
   screen.on("display-removed", (_event, oldDisplay) => {
     logEvent("display", "display removed", simplifyDisplay(oldDisplay));
+    recordDisplay("removed", oldDisplay);
   });
   screen.on("display-metrics-changed", (_event, updatedDisplay, changedMetrics) => {
     if (changedMetrics.length === 0) {
@@ -82,6 +113,26 @@ function simplifyDisplay(display: Electron.Display) {
     scaleFactor: display.scaleFactor,
     rotation: display.rotation,
     internal: display.internal
+  };
+}
+
+function toDisplaySnapshot(display: Electron.Display): DisplaySnapshot {
+  const primaryId = screen.getPrimaryDisplay().id;
+  return {
+    id: String(display.id),
+    label: display.label,
+    x: display.bounds.x,
+    y: display.bounds.y,
+    width: display.bounds.width,
+    height: display.bounds.height,
+    visibleX: display.workArea.x,
+    visibleY: display.workArea.y,
+    visibleWidth: display.workArea.width,
+    visibleHeight: display.workArea.height,
+    scaleFactor: display.scaleFactor,
+    rotation: display.rotation,
+    internal: display.internal,
+    isPrimary: display.id === primaryId
   };
 }
 
