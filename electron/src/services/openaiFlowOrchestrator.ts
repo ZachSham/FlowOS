@@ -551,7 +551,7 @@ const DISPLAY_GEOMETRY_RULES =
   "Window geometry: coordinates are global across all displays - never assume (0,0). " +
   "Always use the target display's visibleX/visibleY/visibleWidth/visibleHeight (not width/height) and scale per-display. " +
   "For an R x C tile: cellW = visibleWidth/C, cellH = visibleHeight/R, slot(row,col) = { x: visibleX + col*cellW, y: visibleY + row*cellH, width: cellW, height: cellH }. " +
-  "Re-call get_system_snapshot if the snapshot may be stale (after moves/resizes, or display add/remove in tracking).";
+  "State tracking: the initial snapshot ages the moment you call any move/resize/focus/hide tool. Either keep an internal map of the windowId -> latest {x, y, width, height} you set so subsequent decisions use post-action positions, OR call get_system_snapshot to refresh - and definitely refresh every ~5 mutating tool calls, before any verification step, and after any display add/remove in tracking. Never base a new placement on the stale initial snapshot once you have started moving things.";
 
 export function buildVoicePrompt(
   transcript: string,
