@@ -289,6 +289,83 @@ export class AnthropicFlowOrchestrator {
     };
   }
 
+  async runVoiceCommand(transcript: string): Promise<FlowRunResult> {
+    const apiKey = process.env["ANTHROPIC_API_KEY"];
+    const model = process.env["ANTHROPIC_MODEL"] ?? "claude-sonnet-4-0";
+
+    if (!apiKey) {
+      return {
+        ok: false,
+        summary: "Missing ANTHROPIC_API_KEY in .env",
+        model: null,
+        snapshotTimestamp: null,
+        toolCalls: [],
+        toolResults: []
+      };
+    }
+
+    const messages: Array<{
+      role: "user" | "assistant";
+      content: Array<Record<string, unknown>>;
+    }> = [
+      {
+        role: "user",
+        content: [{ type: "text", text: buildVoicePrompt(transcript) }]
+      }
+    ];
+
+    const toolCalls: FlowToolUse[] = [];
+    const toolResults: Array<{ name: string; result: unknown }> = [];
+    let snapshotTimestamp: string | null = null;
+    let finalSummary = "Voice command finished without a summary.";
+
+    for (let iteration = 0; iteration < 8; iteration += 1) {
+      const response = await callAnthropic({ apiKey, model, messages });
+
+      messages.push({
+        role: "assistant",
+        content: response.content as unknown as Array<Record<string, unknown>>
+      });
+
+      const text = response.content
+        .filter((block): block is AnthropicTextBlock => block.type === "text")
+        .map((block) => block.text.trim())
+        .filter(Boolean)
+        .join("\n");
+
+      if (text) {
+        finalSummary = text;
+      }
+
+      const toolUses = response.content.filter(
+        (block): block is AnthropicToolUseBlock => block.type === "tool_use"
+      );
+
+      if (toolUses.length === 0) {
+        break;
+      }
+
+      const toolResultBlocks: Array<Record<string, unknown>> = [];
+      for (const toolUse of toolUses) {
+        toolCalls.push({ name: toolUse.name, input: toolUse.input });
+        const result = await this.executeTool(toolUse.name, toolUse.input);
+        if (isSystemSnapshot(result)) {
+          snapshotTimestamp = result.timestamp;
+        }
+        toolResults.push({ name: toolUse.name, result });
+        toolResultBlocks.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: JSON.stringify(result)
+        });
+      }
+
+      messages.push({ role: "user", content: toolResultBlocks });
+    }
+
+    return { ok: true, summary: finalSummary, model, snapshotTimestamp, toolCalls, toolResults };
+  }
+
   private async executeTool(name: string, input: Record<string, unknown>) {
     const windowEditor = createWindowEditor(this.bridge);
 
@@ -329,6 +406,17 @@ export class AnthropicFlowOrchestrator {
     }
   }
 }
+export function buildVoicePrompt(transcript: string): string {
+  return [
+    `The user said: "${transcript}".`,
+    "You are controlling the user's Mac through explicit tools only.",
+    "First inspect the current state using get_system_snapshot.",
+    "Then execute what the user asked for using only the provided tools.",
+    "If the request is ambiguous, make a reasonable interpretation and proceed.",
+    "Finish with a short plain-English summary of what you did."
+  ].join(" ");
+}
+
 function buildUserPrompt(trackingSummary: ReturnType<TrackingSession["getSummary"]>) {
   return [
     "Enter Flow Mode for default develop mode.",
