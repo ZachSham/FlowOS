@@ -40,7 +40,7 @@ export async function applySplitLayout(
   input: ApplySplitLayoutInput
 ): Promise<ApplySplitLayoutResult> {
   const display = validateDisplay(input.display);
-  const windowIds = validateWindowIds(input.windowIds);
+  const [leftWindowId, rightWindowId] = validateTwoWindowIds(input.windowIds);
   const gap = input.gap ?? 0;
   const margin = input.margin ?? 0;
 
@@ -49,7 +49,7 @@ export async function applySplitLayout(
   }
 
   const usableDisplay = insetFrame(display, margin);
-  const frames = computeSplitFrames(usableDisplay, windowIds.length, gap);
+  const [leftFrame, rightFrame] = computeTwoSplitFrames(usableDisplay, gap);
   const details: string[] = [];
   const warnings: string[] = [];
 
@@ -61,20 +61,14 @@ export async function applySplitLayout(
 
   const windows: AppliedSplitWindow[] = [];
 
-  for (const [index, windowId] of windowIds.entries()) {
-    const frame = frames[index];
-    if (!frame) {
-      continue;
-    }
-
+  for (const [windowId, frame] of [
+    [leftWindowId, leftFrame],
+    [rightWindowId, rightFrame]
+  ] as const) {
     const result = await editor.setFrame(windowId, frame);
     details.push(...result.details);
     warnings.push(...result.warnings);
-    windows.push({
-      windowId,
-      frame,
-      result
-    });
+    windows.push({ windowId, frame, result });
   }
 
   return {
@@ -87,75 +81,32 @@ export async function applySplitLayout(
   };
 }
 
-export function computeSplitFrames(display: LayoutFrame, count: number, gap = 0): LayoutFrame[] {
-  if (!Number.isInteger(count) || count < 1) {
-    throw new Error("count must be a positive integer");
+export function computeTwoSplitFrames(
+  display: LayoutFrame,
+  gap = 0
+): [LayoutFrame, LayoutFrame] {
+  if (gap < 0) {
+    throw new Error("gap must be non-negative");
   }
 
-  if (count <= 3) {
-    return splitRow(display, count, gap);
-  }
+  const availableWidth = display.width - gap;
+  const leftWidth = Math.floor(availableWidth / 2);
+  const rightWidth = availableWidth - leftWidth;
 
-  const columns = Math.ceil(Math.sqrt(count));
-  const rows = Math.ceil(count / columns);
-  const rowFrames = splitColumn(display, rows, gap);
-  const frames: LayoutFrame[] = [];
+  const left: LayoutFrame = {
+    x: display.x,
+    y: display.y,
+    width: leftWidth,
+    height: display.height
+  };
+  const right: LayoutFrame = {
+    x: display.x + leftWidth + gap,
+    y: display.y,
+    width: rightWidth,
+    height: display.height
+  };
 
-  for (const [rowIndex, rowFrame] of rowFrames.entries()) {
-    const remaining = count - frames.length;
-    const columnsInRow = Math.min(columns, remaining);
-    const rowCells = splitRow(rowFrame, columnsInRow, gap);
-    frames.push(...rowCells);
-
-    if (rowIndex === rowFrames.length - 1) {
-      break;
-    }
-  }
-
-  return frames.slice(0, count);
-}
-
-function splitRow(frame: LayoutFrame, columns: number, gap: number): LayoutFrame[] {
-  const totalGap = gap * (columns - 1);
-  const availableWidth = frame.width - totalGap;
-  const widths = splitLength(availableWidth, columns);
-
-  let x = frame.x;
-  return widths.map((width) => {
-    const cell = {
-      x,
-      y: frame.y,
-      width,
-      height: frame.height
-    };
-    x += width + gap;
-    return cell;
-  });
-}
-
-function splitColumn(frame: LayoutFrame, rows: number, gap: number): LayoutFrame[] {
-  const totalGap = gap * (rows - 1);
-  const availableHeight = frame.height - totalGap;
-  const heights = splitLength(availableHeight, rows);
-
-  let y = frame.y;
-  return heights.map((height) => {
-    const cell = {
-      x: frame.x,
-      y,
-      width: frame.width,
-      height
-    };
-    y += height + gap;
-    return cell;
-  });
-}
-
-function splitLength(length: number, parts: number): number[] {
-  const base = Math.floor(length / parts);
-  const remainder = Math.round(length - base * parts);
-
-  return Array.from({ length: parts }, (_, index) => base + (index < remainder ? 1 : 0));
+  return [left, right];
 }
 
 function insetFrame(frame: LayoutFrame, margin: number): LayoutFrame {
@@ -192,12 +143,15 @@ function validateDisplay(display: LayoutDisplay): LayoutDisplay {
   };
 }
 
-function validateWindowIds(windowIds: string[]): string[] {
-  if (!Array.isArray(windowIds) || windowIds.length === 0) {
-    throw new Error("layout.applySplit requires at least one windowId");
+function validateTwoWindowIds(windowIds: string[]): [string, string] {
+  if (!Array.isArray(windowIds) || windowIds.length !== 2) {
+    throw new Error("layout.applySplit requires exactly two windowIds");
   }
 
-  return windowIds.map((windowId) => readNonEmptyString(windowId, "windowId"));
+  return [
+    readNonEmptyString(windowIds[0], "windowIds[0]"),
+    readNonEmptyString(windowIds[1], "windowIds[1]")
+  ];
 }
 
 function readNonEmptyString(value: unknown, label: string): string {
