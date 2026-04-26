@@ -46,6 +46,14 @@ struct WindowSnapshot: Codable {
     let frame: NativeWindowFrame?
 }
 
+struct ScreenSnapshot: Codable {
+    let id: Int
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+}
+
 struct ActionResult: Codable {
     let ok: Bool
     let actionType: String?
@@ -301,6 +309,18 @@ func visibleScreens() -> [CGRect] {
     }
 }
 
+func listScreens() -> [ScreenSnapshot] {
+    return visibleScreens().enumerated().map { index, frame in
+        ScreenSnapshot(
+            id: index,
+            x: frame.minX,
+            y: frame.minY,
+            width: frame.width,
+            height: frame.height
+        )
+    }
+}
+
 func containingScreen(for frame: NativeWindowFrame) -> CGRect {
     let screens = visibleScreens()
     let center = CGPoint(x: frame.x + frame.width / 2, y: frame.y + frame.height / 2)
@@ -365,6 +385,13 @@ func raiseWindow(_ window: AXUIElement, app: NSRunningApplication) throws {
 
     guard error == .success || error == .actionUnsupported else {
         throw HelperError.axFailure("Raise window", error)
+    }
+}
+
+func minimizeWindow(_ window: AXUIElement) throws {
+    let error = AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanTrue)
+    guard error == .success else {
+        throw HelperError.axFailure("Minimize window", error)
     }
 }
 
@@ -439,6 +466,20 @@ func runAction(_ action: NativeAction) throws -> ActionResult {
             window: snapshot(app: target.app, index: target.index, window: target.window)
         )
 
+    case "native.window.minimize":
+        guard let windowId = action.windowId else {
+            throw HelperError.invalidAction("minimize requires windowId.")
+        }
+        let target = try findWindow(windowId: windowId)
+        try minimizeWindow(target.window)
+
+        return ActionResult(
+            ok: true,
+            actionType: action.type,
+            message: "Window minimized.",
+            window: snapshot(app: target.app, index: target.index, window: target.window)
+        )
+
     case "native.app.activate":
         guard let bundleId = action.bundleId else {
             throw HelperError.invalidAction("activate requires bundleId.")
@@ -476,6 +517,7 @@ func printUsage() throws {
             "FlowStateHelper status",
             "FlowStateHelper request-accessibility",
             "FlowStateHelper list-windows",
+            "FlowStateHelper list-screens",
             "FlowStateHelper run-action '{\"type\":\"native.window.setFrame\",...}'",
             "echo '{\"type\":\"native.window.setFrame\",...}' | FlowStateHelper run-action"
         ]
@@ -502,6 +544,9 @@ do {
 
     case "list-windows":
         try writeJSON(listWindows())
+
+    case "list-screens":
+        try writeJSON(listScreens())
 
     case "run-action":
         let rawAction = CommandLine.arguments.dropFirst(2).first ?? readStdin()

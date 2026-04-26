@@ -13,6 +13,7 @@ export type SignalSource =
   | "vscode-extension"
   | "electron"
   | "swift-helper"
+  | "voice"
   | "user";
 
 export interface WindowBounds {
@@ -167,7 +168,22 @@ export type RealtimeMessage =
   | {
       type: "suggestions.updated";
       payload: Suggestion[];
+    }
+  | {
+      type: "voice.command.executed";
+      payload: VoiceCommandResult;
     };
+
+export type VoiceCommandIntent = "activate_app" | "move_window_to_other_screen" | "unknown";
+
+export interface VoiceCommandResult {
+  ok: boolean;
+  transcript: string;
+  normalizedTranscript: string;
+  intent: VoiceCommandIntent;
+  message: string;
+  actionType?: NativeAction["type"];
+}
 
 export const demoTaskState: TaskState = {
   id: "task-debug-react-auth",

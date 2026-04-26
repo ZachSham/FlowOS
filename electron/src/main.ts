@@ -5,6 +5,7 @@ import { ipcChannels } from "./ipc/channels.js";
 import { createRealtimeServer } from "./realtime/server.js";
 import { getSwiftHelperStatus } from "./bridge/swiftHelper.js";
 import { createMainWindow, createSidebarWindow } from "./windows/browserWindows.js";
+import { runVoiceCommand } from "./voice/commandRouter.js";
 
 const port = Number(process.env.FLOWOS_WS_PORT ?? "7331");
 
@@ -24,6 +25,9 @@ async function bootstrap() {
     websocketPort: port,
     swiftHelper: getSwiftHelperStatus()
   }));
+  ipcMain.handle(ipcChannels.runVoiceCommand, (_event, transcript: string) =>
+    runVoiceCommand(transcript)
+  );
 
   mainWindow = createMainWindow();
   sidebarWindow = createSidebarWindow();
