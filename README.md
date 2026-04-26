@@ -9,8 +9,13 @@ Under the hood, an OpenAI tool-calling agent reads a live snapshot of your deskt
 ## What It Does
 
 - **Lives in your menu bar**: Click the FlowOS icon for instant access — start tracking, drop into a focus mode, or toggle the mic. Same controls also live in the floating renderer window if you'd rather click around.
-- **Global hotkey + recording glow**: Hit **⌘⇧K** anywhere on macOS to toggle the mic. While you're recording, the floating control window auto-pops next to the menu-bar icon and glows red (red ring + soft red shadow + animated red dot) so you always know FlowOS is listening. Hit it again to send the command.
-- **Voice commands**: Speak something like *"open five tabs to help me learn dynamic programming"* or *"bring back Slack on the iPad"* — Whisper transcribes it, the agent plans the moves, the windows tile.
+- **Hotkey, then talk**: Hit **⌘⇧K** anywhere on macOS, *speak your request*, then hit **⌘⇧K** again to send. While you're talking the floating control window auto-pops next to the menu-bar icon and glows red (red ring + soft red shadow + animated red dot) so you always know FlowOS is listening. No window to switch to, no button to find — just the keyboard, your voice, and the keyboard again.
+- **Voice commands**: Speak naturally and the agent figures out the moves — Whisper transcribes, the OpenAI agent plans against a live snapshot of your desktop, the windows tile. A few that actually work today:
+  - *"Put me in Coding Mode."* → splits Cursor and GitHub Desktop side-by-side on your primary display, pushes every Chrome window to your second display, minimizes Slack / Discord / Mail. ~3-5 seconds end to end.
+  - *"Move my Chrome to my second display and group all my tabs by category."* → relocates Chrome to display 2 at full visible-rect size, then takes 30+ ungrouped tabs across multiple Chrome windows and topic-groups them ("Auth", "React", "Hackathon", "Later") without losing one.
+  - *"Open 5 tabs to help me learn dynamic programming, the STAR method, and hashmap YouTube videos."* → opens five tabs in a fresh Chrome window and groups them by topic.
+  - *"Split screen my two most recently used applications."* → reads the rolling 50-event tracking buffer, picks the two most recent `app.activated` events, and tiles those windows on the focused display.
+  - *"Bring back Slack on the iPad."* → unhides Slack and moves it to the connected Sidecar display, sized to that display's visible rect.
 - **Three Flow Modes** (under the **Enter Flow State** menu):
   - **Coding Mode** — IDE (Cursor → Xcode → VS Code fallback) and a coding helper (GitHub Desktop / Codex / Terminal) split-screen on your primary display, every Chrome window pushed to your second display (or hidden if there isn't one), everything else minimized.
   - **Research Mode** — Chrome and a writing companion (Notes / Bear / Obsidian) split-screen on your primary display, an optional grounding app (Spotify / Apple Music) on the second display *only if it's already running*, distractors minimized.
