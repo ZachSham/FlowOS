@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import type { Suggestion, TaskState } from "@flowos/shared";
+import type {
+  ChromeSnapshot,
+  ChromeCommand,
+  ChromeCommandPayloadMap,
+  ChromeCommandResultMap,
+  Suggestion,
+  TaskState
+} from "@flowos/shared";
 import { demoSuggestions, demoTaskState } from "@flowos/shared";
 import { SuggestionList } from "./components/SuggestionList";
 
@@ -7,6 +14,17 @@ type BootstrapState = {
   taskState: TaskState;
   suggestions: Suggestion[];
   websocketPort: number;
+  realtimeClients: Array<{
+    id: string;
+    source: string;
+    version: string;
+    connectedAt: string;
+    lastHeartbeatAt: string;
+  }>;
+  chrome: {
+    latestSnapshot: ChromeSnapshot | null;
+    historyPreview: ChromeSnapshot[];
+  };
   swiftHelper: {
     connected: boolean;
     transport: "stdio";
@@ -14,10 +32,20 @@ type BootstrapState = {
   };
 };
 
+type StateUpdatePayload = {
+  taskState: TaskState;
+  suggestions: Suggestion[];
+};
+
 declare global {
   interface Window {
     flowos?: {
       getBootstrapState: () => Promise<BootstrapState>;
+      onStateUpdated: (listener: (state: StateUpdatePayload) => void) => () => void;
+      runChromeCommand: <C extends ChromeCommand>(
+        command: C,
+        payload: ChromeCommandPayloadMap[C]
+      ) => Promise<ChromeCommandResultMap[C]>;
     };
   }
 }
@@ -38,11 +66,20 @@ export function App() {
       return;
     }
 
+    const unsubscribe = window.flowos.onStateUpdated((state) => {
+      setTaskState(state.taskState);
+      setSuggestions(state.suggestions);
+    });
+
     void window.flowos.getBootstrapState().then((state) => {
       setTaskState(state.taskState);
       setSuggestions(state.suggestions);
       setWebsocketPort(state.websocketPort);
     });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const fileSuggestions = suggestions.filter((item) => item.kind === "file");
