@@ -8,14 +8,13 @@ import type {
   ChromeCommandResultMap,
   ChromeSnapshot,
   RealtimeMessage,
-  SignalSource,
-  VsCodeSnapshot
+  SignalSource
 } from "@flowos/shared";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const HEARTBEAT_TIMEOUT_MS = 45_000;
 const COMMAND_TIMEOUT_MS = 12_000;
-const EXTENSION_SOURCES: ReadonlySet<SignalSource> = new Set(["chrome-extension", "vscode-extension"]);
+const EXTENSION_SOURCES: ReadonlySet<SignalSource> = new Set(["chrome-extension"]);
 
 interface ConnectedClient {
   id: string;
@@ -36,7 +35,6 @@ interface PendingCommand {
 interface RealtimeServerOptions {
   authToken?: string;
   onChromeSnapshot?: (snapshot: ChromeSnapshot) => void;
-  onVsCodeSnapshot?: (snapshot: VsCodeSnapshot) => void;
 }
 
 export interface RealtimeServerHandle {
@@ -187,9 +185,6 @@ export function createRealtimeServer(port: number, options: RealtimeServerOption
     switch (message.type) {
       case "chrome.snapshot":
         options.onChromeSnapshot?.(message.payload);
-        return;
-      case "vscode.snapshot":
-        options.onVsCodeSnapshot?.(message.payload);
         return;
       case "chrome.command.result":
         handleCommandResult(message.payload);

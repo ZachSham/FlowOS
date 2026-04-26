@@ -6,7 +6,6 @@
     "electron",
     "renderer",
     "extension-chrome",
-    "extension-vscode",
     "shared"
   ],
   "scripts": {
@@ -17,8 +16,8 @@
     "dev:app": "wait-on tcp:5173 file:electron/dist/main.js && electron electron/dist/main.js",
     "build:swift-helper": "HOME=/tmp/flowos-swift-helper CLANG_MODULE_CACHE_PATH=/tmp/flowos-swift-helper/clang-cache SWIFTPM_ENABLE_PLUGINS=0 swift build --package-path swift-helper -c debug",
     "native": "npm run build:swift-helper && npm run build --workspace @flowos/shared && npm run build --workspace @flowos/electron && npm run native --workspace @flowos/electron --",
-    "build": "npm run build --workspace @flowos/shared && npm run build --workspace @flowos/electron && npm run build --workspace @flowos/renderer && npm run build --workspace @flowos/extension-chrome && npm run build --workspace @flowos/extension-vscode",
-    "typecheck": "npm run build --workspace @flowos/shared && npm run typecheck --workspace @flowos/electron && npm run typecheck --workspace @flowos/renderer && npm run typecheck --workspace @flowos/extension-chrome && npm run typecheck --workspace @flowos/extension-vscode && npm run typecheck --workspace @flowos/shared"
+    "build": "npm run build --workspace @flowos/shared && npm run build --workspace @flowos/electron && npm run build --workspace @flowos/renderer && npm run build --workspace @flowos/extension-chrome",
+    "typecheck": "npm run build --workspace @flowos/shared && npm run typecheck --workspace @flowos/electron && npm run typecheck --workspace @flowos/renderer && npm run typecheck --workspace @flowos/extension-chrome && npm run typecheck --workspace @flowos/shared"
   },
   "devDependencies": {
     "@types/node": "^24.0.1",

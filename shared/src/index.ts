@@ -10,7 +10,6 @@ export type FlowMode =
 export type SignalSource =
   | "system"
   | "chrome-extension"
-  | "vscode-extension"
   | "electron"
   | "swift-helper"
   | "user";
@@ -241,20 +240,6 @@ export type ChromeCommandResult<C extends ChromeCommand = ChromeCommand> =
   | ChromeCommandSuccessResult<C>
   | ChromeCommandFailureResult<C>;
 
-export interface VsCodeSnapshot {
-  app: "vscode";
-  workspaceName?: string;
-  activeFile?: string;
-  openTabs: string[];
-  diagnostics: Array<{
-    file: string;
-    severity: "error" | "warning" | "info";
-    message: string;
-  }>;
-  recentCommands: string[];
-  capturedAt: string;
-}
-
 export type RealtimeMessage =
   | {
       type: "extension.handshake";
@@ -289,10 +274,6 @@ export type RealtimeMessage =
       payload: ChromeSnapshot;
     }
   | {
-      type: "vscode.snapshot";
-      payload: VsCodeSnapshot;
-    }
-  | {
       type: "task-state.updated";
       payload: TaskState;
     }
@@ -318,10 +299,10 @@ export const demoTaskState: TaskState = {
   updatedAt: new Date("2026-04-25T17:00:00.000Z").toISOString(),
   signals: [
     {
-      source: "vscode-extension",
-      label: "Active file",
-      value: "src/features/auth/callback.tsx",
-      weight: 0.9
+      source: "chrome-extension",
+      label: "Active tab",
+      value: "Auth flow docs",
+      weight: 0.72
     },
     {
       source: "system",

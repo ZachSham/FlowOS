@@ -10,8 +10,7 @@ import {
   type ChromeSnapshot,
   type Suggestion,
   type TaskState,
-  type TaskSignal,
-  type VsCodeSnapshot
+  type TaskSignal
 } from "@flowos/shared";
 import { ipcChannels } from "./ipc/channels.js";
 import { createRealtimeServer, type RealtimeServerHandle } from "./realtime/server.js";
@@ -44,7 +43,6 @@ let chromeEditor: ChromeEditor | null = null;
 let chromeHistoryStore: ChromeHistoryStore | null = null;
 let persistentMemoryStore: PersistentMemoryStore | null = null;
 let latestChromeSnapshot: ChromeSnapshot | null = null;
-let latestVsCodeSnapshot: VsCodeSnapshot | null = null;
 let swiftHelperStatus: SwiftHelperStatus = {
   connected: false,
   transport: "stdio",
@@ -74,11 +72,6 @@ async function bootstrap() {
     onChromeSnapshot: (snapshot) => {
       latestChromeSnapshot = snapshot;
       void chromeHistoryStore?.append(snapshot);
-      refreshTaskStateFromSignals();
-      broadcastStateUpdate();
-    },
-    onVsCodeSnapshot: (snapshot) => {
-      latestVsCodeSnapshot = snapshot;
       refreshTaskStateFromSignals();
       broadcastStateUpdate();
     }
@@ -305,15 +298,6 @@ async function runChromeCommand<C extends ChromeCommand>(
 
 function refreshTaskStateFromSignals() {
   const signals: TaskSignal[] = [];
-
-  if (latestVsCodeSnapshot?.activeFile) {
-    signals.push({
-      source: "vscode-extension",
-      label: "Active file",
-      value: latestVsCodeSnapshot.activeFile,
-      weight: 0.86
-    });
-  }
 
   if (latestChromeSnapshot) {
     const activeTab = latestChromeSnapshot.tabs.find((tab) => tab.active);
