@@ -128,6 +128,7 @@ The current main branch is the bootstrap layer that lets the full app be built i
 - `.env.example` with:
   - `OPENAI_API_KEY`
   - `FLOWOS_WS_PORT`
+  - `FLOWOS_MEMORY_PATH` (optional override for the persistent markdown memory file path)
   - `FLOWOS_DB_PATH`
 
 ### Shared contracts
