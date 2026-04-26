@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { BrowserWindow, session } from "electron";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,6 +7,10 @@ const windowModuleDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = resolve(windowModuleDir, "../preload.cjs");
 
 export function createMainWindow() {
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === "media");
+  });
+
   const mainWindow = new BrowserWindow({
     width: 860,
     height: 760,

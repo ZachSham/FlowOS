@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, net } from "electron";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -141,6 +141,33 @@ async function bootstrap() {
 
   ipcMain.handle(ipcChannels.runVoiceCommand, async (_event, transcript: string) => {
     return await flowOrchestrator.runVoiceCommand(transcript);
+  });
+
+  ipcMain.handle(ipcChannels.transcribeAudio, async (_event, audioData: Uint8Array) => {
+    const apiKey = process.env["OPENAI_API_KEY"]?.trim();
+    if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
+
+    const form = new FormData();
+    form.append("model", "whisper-1");
+    form.append(
+      "file",
+      new Blob([audioData], { type: "audio/webm" }),
+      "recording.webm"
+    );
+
+    const response = await net.fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}` },
+      body: form
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Whisper error ${response.status}: ${text}`);
+    }
+
+    const data = await response.json() as { text: string };
+    return data.text.trim();
   });
 
   ipcMain.handle(ipcChannels.runChromeCommand, async (_event, request: ChromeCommandInvocation) => {

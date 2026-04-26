@@ -51,6 +51,7 @@ declare global {
       startTracking: () => Promise<TrackingState>;
       enterFlowMode: () => Promise<FlowRunResult>;
       runVoiceCommand: (transcript: string) => Promise<FlowRunResult>;
+      transcribeAudio: (audioData: Uint8Array) => Promise<string>;
     };
   }
 }
@@ -157,6 +158,29 @@ export function App() {
     stop: stopListening
   } = useVoiceDictation(handleVoiceTranscript);
 
+  function handleVoiceButtonClick() {
+    if (isSubmitting) {
+      return;
+    }
+
+    if (voiceSupported) {
+      if (isListening) {
+        stopListening();
+      } else {
+        startListening();
+      }
+      return;
+    }
+
+    const typed = window.prompt("Speech recognition is unavailable here. Type a command:");
+    const transcript = typed?.trim();
+    if (!transcript) {
+      return;
+    }
+
+    void handleVoiceTranscript(transcript);
+  }
+
   async function handleEnterFlowMode() {
     if (!window.flowos) {
       setErrorMessage("Electron preload bridge is unavailable in this window.");
@@ -232,17 +256,23 @@ export function App() {
           </button>
           <button
             type="button"
-            onClick={isListening ? stopListening : startListening}
-            disabled={isSubmitting || !voiceSupported}
+            onClick={handleVoiceButtonClick}
+            disabled={isSubmitting}
             className={`rounded-2xl border px-4 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
               isListening
                 ? "border-red-400/40 bg-red-400/15 text-red-100 hover:bg-red-400/25"
                 : "border-white/15 bg-white/10 text-white hover:bg-white/15"
             }`}
           >
-            {isListening ? "Stop Recording" : "Voice Command"}
+            {voiceSupported ? (isListening ? "Stop Recording" : "Voice Command") : "Type Command"}
           </button>
         </div>
+
+        {!voiceSupported ? (
+          <p className="mt-3 text-xs text-white/55">
+            Live speech capture is not available in this window. Use <strong>Type Command</strong>.
+          </p>
+        ) : null}
 
         <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
           <dl className="space-y-3 text-sm text-white/75">

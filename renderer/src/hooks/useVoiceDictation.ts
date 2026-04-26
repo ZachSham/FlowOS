@@ -9,87 +9,71 @@ export type VoiceDictationHook = {
   stop: () => void;
 };
 
-type SpeechResult = { transcript: string };
-type SpeechResultList = Array<Array<SpeechResult>>;
-
-type SpeechRecognitionInstance = {
-  lang: string;
-  interimResults: boolean;
-  maxAlternatives: number;
-  onresult: ((event: { results: SpeechResultList }) => void) | null;
-  onerror: ((event: { error: string }) => void) | null;
-  onend: (() => void) | null;
-  start(): void;
-  stop(): void;
-};
-
-type SpeechRecognitionCtor = new () => SpeechRecognitionInstance;
-
-function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
-  if (typeof window === "undefined") return null;
-  const w = window as Window & {
-    SpeechRecognition?: SpeechRecognitionCtor;
-    webkitSpeechRecognition?: SpeechRecognitionCtor;
-  };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-}
-
 export function useVoiceDictation(
   onTranscript: (transcript: string) => void
 ): VoiceDictationHook {
   const [isListening, setIsListening] = useState(false);
   const [lastTranscript, setLastTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
 
   const start = useCallback(() => {
-    const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor) {
-      setError("Speech recognition is not supported in this browser.");
-      return;
-    }
-
     setError(null);
     setLastTranscript("");
 
-    const recognition = new Ctor();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        const recorder = new MediaRecorder(stream);
+        chunksRef.current = [];
 
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript ?? "";
-      setLastTranscript(transcript);
-      if (transcript) {
-        onTranscriptRef.current(transcript);
-      }
-    };
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data);
+        };
 
-    recognition.onerror = (event) => {
-      setError(`Recognition error: ${event.error}`);
-      setIsListening(false);
-    };
+        recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+          const blob = new Blob(chunksRef.current, { type: "audio/webm" });
 
-    recognition.onend = () => {
-      setIsListening(false);
-    };
+          blob
+            .arrayBuffer()
+            .then(async (buffer) => {
+              const transcript = await window.flowos?.transcribeAudio(new Uint8Array(buffer));
+              if (transcript) {
+                setLastTranscript(transcript);
+                onTranscriptRef.current(transcript);
+              }
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : "Transcription failed.");
+            });
+        };
 
-    recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
+        recorder.start();
+        recorderRef.current = recorder;
+        setIsListening(true);
+      })
+      .catch((err: unknown) => {
+        setError(`Microphone error: ${err instanceof Error ? err.message : String(err)}`);
+      });
   }, []);
 
   const stop = useCallback(() => {
-    recognitionRef.current?.stop();
+    if (recorderRef.current?.state === "recording") {
+      recorderRef.current.stop();
+    }
+    recorderRef.current = null;
+    setIsListening(false);
   }, []);
 
   return {
     isListening,
     lastTranscript,
     error,
-    supported: getSpeechRecognitionCtor() !== null,
+    supported: typeof navigator !== "undefined" && "mediaDevices" in navigator,
     start,
     stop
   };

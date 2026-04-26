@@ -18,7 +18,8 @@ const channels = {
   enterFlowMode: "flow:enter",
   stateUpdated: "state:updated",
   runChromeCommand: "chrome:run-command",
-  runVoiceCommand: "voice:run-command"
+  runVoiceCommand: "voice:run-command",
+  transcribeAudio: "voice:transcribe"
 } as const;
 
 try {
@@ -40,7 +41,9 @@ try {
         ChromeCommandResultMap[C]
       >,
     runVoiceCommand: (transcript: string) =>
-      ipcRenderer.invoke(channels.runVoiceCommand, transcript)
+      ipcRenderer.invoke(channels.runVoiceCommand, transcript),
+    transcribeAudio: (audioData: Uint8Array) =>
+      ipcRenderer.invoke(channels.transcribeAudio, audioData) as Promise<string>
   });
 } catch (error) {
   console.error("[flowos][preload] failed to expose bridge", error);
