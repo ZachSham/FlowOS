@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useVoiceDictation } from "./hooks/useVoiceDictation";
 
 type TrackingEventRecord = {
   timestamp: string;
@@ -49,6 +50,7 @@ declare global {
       getBootstrapState: () => Promise<BootstrapState>;
       startTracking: () => Promise<TrackingState>;
       enterFlowMode: () => Promise<FlowRunResult>;
+      runVoiceCommand: (transcript: string) => Promise<FlowRunResult>;
     };
   }
 }
@@ -77,6 +79,7 @@ export function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [voiceResult, setVoiceResult] = useState<FlowRunResult | null>(null);
 
   useEffect(() => {
     if (!window.flowos) {
@@ -122,6 +125,37 @@ export function App() {
       setIsSubmitting(false);
     }
   }
+
+  async function handleVoiceTranscript(transcript: string) {
+    if (!window.flowos) {
+      setErrorMessage("Electron preload bridge is unavailable.");
+      return;
+    }
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    setStatusMessage(`Voice: "${transcript}" — processing...`);
+    try {
+      const result = await window.flowos.runVoiceCommand(transcript);
+      setVoiceResult(result);
+      setStatusMessage(result.ok ? "Voice command completed." : "Voice command failed.");
+      if (!result.ok) setErrorMessage(result.summary);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setErrorMessage(message);
+      setStatusMessage("Voice command failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  const {
+    isListening,
+    lastTranscript,
+    error: voiceError,
+    supported: voiceSupported,
+    start: startListening,
+    stop: stopListening
+  } = useVoiceDictation(handleVoiceTranscript);
 
   async function handleEnterFlowMode() {
     if (!window.flowos) {
@@ -195,6 +229,18 @@ export function App() {
             className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Enter Flow Mode
+          </button>
+          <button
+            type="button"
+            onClick={isListening ? stopListening : startListening}
+            disabled={isSubmitting || !voiceSupported}
+            className={`rounded-2xl border px-4 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+              isListening
+                ? "border-red-400/40 bg-red-400/15 text-red-100 hover:bg-red-400/25"
+                : "border-white/15 bg-white/10 text-white hover:bg-white/15"
+            }`}
+          >
+            {isListening ? "Stop Recording" : "Voice Command"}
           </button>
         </div>
 
@@ -270,6 +316,24 @@ export function App() {
             {secondaryCommand || "Waiting for helper command..."}
           </p>
         </section>
+
+        {(lastTranscript || voiceError || voiceResult) ? (
+          <section className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-5">
+            <div className="text-[11px] uppercase tracking-[0.3em] text-white/50">Voice</div>
+            {lastTranscript ? (
+              <p className="mt-3 text-sm text-white/75">
+                <span className="text-white/45">Heard: </span>
+                {lastTranscript}
+              </p>
+            ) : null}
+            {voiceError ? (
+              <p className="mt-2 text-sm text-red-300/85">{voiceError}</p>
+            ) : null}
+            {voiceResult ? (
+              <p className="mt-2 text-sm text-white/75">{voiceResult.summary}</p>
+            ) : null}
+          </section>
+        ) : null}
       </div>
     </div>
   );
