@@ -139,6 +139,10 @@ async function bootstrap() {
     }
   });
 
+  ipcMain.handle(ipcChannels.runVoiceCommand, async (_event, transcript: string) => {
+    return await flowOrchestrator.runVoiceCommand(transcript);
+  });
+
   ipcMain.handle(ipcChannels.runChromeCommand, async (_event, request: ChromeCommandInvocation) => {
     return await runChromeCommand(request.command, request.payload);
   });

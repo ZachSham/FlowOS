@@ -3,5 +3,6 @@ export const ipcChannels = {
   startTracking: "tracking:start",
   enterFlowMode: "flow:enter",
   stateUpdated: "state:updated",
-  runChromeCommand: "chrome:run-command"
+  runChromeCommand: "chrome:run-command",
+  runVoiceCommand: "voice:run-command"
 } as const;
