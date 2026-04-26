@@ -9,7 +9,8 @@ Under the hood, an OpenAI tool-calling agent reads a live snapshot of your deskt
 ## What It Does
 
 - **Lives in your menu bar**: Click the FlowOS icon for instant access — start tracking, drop into a focus mode, or toggle the mic. Same controls also live in the floating renderer window if you'd rather click around.
-- **Voice commands**: Hold the mic, speak something like *"open five tabs to help me learn dynamic programming"* or *"bring back Slack on the iPad"* — Whisper transcribes it, the agent plans the moves, the windows tile.
+- **Global hotkey + recording glow**: Hit **⌘⇧K** anywhere on macOS to toggle the mic. While you're recording, the floating control window auto-pops next to the menu-bar icon and glows red (red ring + soft red shadow + animated red dot) so you always know FlowOS is listening. Hit it again to send the command.
+- **Voice commands**: Speak something like *"open five tabs to help me learn dynamic programming"* or *"bring back Slack on the iPad"* — Whisper transcribes it, the agent plans the moves, the windows tile.
 - **Three Flow Modes** (under the **Enter Flow State** menu):
   - **Coding Mode** — IDE (Cursor → Xcode → VS Code fallback) and a coding helper (GitHub Desktop / Codex / Terminal) split-screen on your primary display, every Chrome window pushed to your second display (or hidden if there isn't one), everything else minimized.
   - **Research Mode** — Chrome and a writing companion (Notes / Bear / Obsidian) split-screen on your primary display, an optional grounding app (Spotify / Apple Music) on the second display *only if it's already running*, distractors minimized.
@@ -20,7 +21,7 @@ Under the hood, an OpenAI tool-calling agent reads a live snapshot of your deskt
 - **Chrome tab control**: Focus tabs, group tabs by topic, ungroup, pin, open new tabs — across every Chrome window. Closing tabs is intentionally **not** exposed (safety).
 - **Intelligent grouping**: Flow Mode topic-groups Chrome tabs across multiple Chrome windows and consolidates related work without losing anything.
 - **Live state context**: A 50-event ring buffer of native events (app launches/quits/activations, display add/remove) and a fresh system + Chrome snapshot are pre-injected into every voice / Flow run so the agent always knows current desktop state.
-- **Self-correcting agent loop**: Up to 20 iterations of OpenAI tool calling, automatic re-snapshot after long mutation chains, graceful warnings on macOS Accessibility hiccups (Sidecar, multi-Space) instead of hard failures.
+- **Self-correcting agent loop**: Up to 20 iterations of OpenAI tool calling, with automatic re-snapshots after long mutation chains so the model never plans against stale state.
 
 ## Requirements
 
