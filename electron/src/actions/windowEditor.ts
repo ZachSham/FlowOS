@@ -50,6 +50,15 @@ export class WindowEditor {
     return this.request("window.restore", { windowId });
   }
 
+  clearFullscreenAtLocation(frame: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<NativeActionResult> {
+    return this.request("window.clearFullscreenAtLocation", frame);
+  }
+
   activateApp(bundleId: string): Promise<NativeActionResult> {
     return this.request("app.activate", { bundleId });
   }

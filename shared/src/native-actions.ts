@@ -41,6 +41,12 @@ export interface NativeRequestPayloadMap {
     width: number;
     height: number;
   };
+  "window.clearFullscreenAtLocation": {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface NativeResponsePayloadMap {
@@ -59,6 +65,7 @@ export interface NativeResponsePayloadMap {
   "window.move": NativeActionResult;
   "window.resize": NativeActionResult;
   "window.setFrame": NativeActionResult;
+  "window.clearFullscreenAtLocation": NativeActionResult;
 }
 
 export type NativeMethod = keyof NativeRequestPayloadMap;
