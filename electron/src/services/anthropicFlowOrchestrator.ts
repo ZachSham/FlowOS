@@ -1,4 +1,5 @@
 import type { NativeActionResult, SystemSnapshot } from "@flowos/shared";
+import { net } from "electron";
 import { createWindowEditor } from "../actions/windowEditor.js";
 import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
 import type { TrackingSession } from "./trackingSession.js";
@@ -463,7 +464,7 @@ async function callOpenAI(input: {
   model: string;
   messages: InternalMessage[];
 }): Promise<LLMResponse> {
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const response = await net.fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "content-type": "application/json",
