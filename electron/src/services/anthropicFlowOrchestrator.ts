@@ -44,6 +44,36 @@ export interface FlowRunResult {
   }>;
 }
 
+export type ProviderConfig = {
+  provider: "anthropic" | "openai";
+  apiKey: string;
+  model: string;
+};
+
+interface OpenAIToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+interface OpenAIResponse {
+  choices: Array<{
+    message: {
+      content: string | null;
+      tool_calls?: OpenAIToolCall[];
+    };
+    finish_reason: string;
+  }>;
+}
+
+type InternalMessage = {
+  role: "user" | "assistant";
+  content: Array<Record<string, unknown>>;
+};
+
+const SYSTEM_PROMPT =
+  "You are FlowOS's native desktop orchestrator. Use tools carefully, prefer precise window actions, and never invent tool names or fields.";
+
 const TOOL_DEFINITIONS = [
   {
     name: "get_system_snapshot",
@@ -174,6 +204,15 @@ const TOOL_DEFINITIONS = [
   }
 ] as const;
 
+const TOOL_DEFINITIONS_OPENAI = TOOL_DEFINITIONS.map((tool) => ({
+  type: "function" as const,
+  function: {
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.input_schema
+  }
+}));
+
 export class AnthropicFlowOrchestrator {
   private readonly bridge: NativeHelperBridge;
   private readonly trackingSession: TrackingSession;
@@ -184,33 +223,16 @@ export class AnthropicFlowOrchestrator {
   }
 
   async enterDevelopFlowMode(): Promise<FlowRunResult> {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-0";
-
-    if (!apiKey) {
-      return {
-        ok: false,
-        summary: "Missing ANTHROPIC_API_KEY in .env",
-        model: null,
-        snapshotTimestamp: null,
-        toolCalls: [],
-        toolResults: []
-      };
+    const config = resolveProviderConfig();
+    if ("error" in config) {
+      return { ok: false, summary: config.error, model: null, snapshotTimestamp: null, toolCalls: [], toolResults: [] };
     }
 
     const trackingSummary = this.trackingSession.getSummary();
-    const messages: Array<{
-      role: "user" | "assistant";
-      content: Array<Record<string, unknown>>;
-    }> = [
+    const messages: InternalMessage[] = [
       {
         role: "user",
-        content: [
-          {
-            type: "text",
-            text: buildUserPrompt(trackingSummary)
-          }
-        ]
+        content: [{ type: "text", text: buildUserPrompt(trackingSummary) }]
       }
     ];
 
@@ -220,11 +242,7 @@ export class AnthropicFlowOrchestrator {
     let finalSummary = "Flow mode finished without a final summary.";
 
     for (let iteration = 0; iteration < 8; iteration += 1) {
-      const response = await callAnthropic({
-        apiKey,
-        model,
-        messages
-      });
+      const response = await callProvider({ config, messages });
 
       messages.push({
         role: "assistant",
@@ -251,21 +269,14 @@ export class AnthropicFlowOrchestrator {
 
       const toolResultBlocks: Array<Record<string, unknown>> = [];
       for (const toolUse of toolUses) {
-        toolCalls.push({
-          name: toolUse.name,
-          input: toolUse.input
-        });
+        toolCalls.push({ name: toolUse.name, input: toolUse.input });
 
         const result = await this.executeTool(toolUse.name, toolUse.input);
         if (isSystemSnapshot(result)) {
           snapshotTimestamp = result.timestamp;
         }
 
-        toolResults.push({
-          name: toolUse.name,
-          result
-        });
-
+        toolResults.push({ name: toolUse.name, result });
         toolResultBlocks.push({
           type: "tool_result",
           tool_use_id: toolUse.id,
@@ -273,41 +284,19 @@ export class AnthropicFlowOrchestrator {
         });
       }
 
-      messages.push({
-        role: "user",
-        content: toolResultBlocks
-      });
+      messages.push({ role: "user", content: toolResultBlocks });
     }
 
-    return {
-      ok: true,
-      summary: finalSummary,
-      model,
-      snapshotTimestamp,
-      toolCalls,
-      toolResults
-    };
+    return { ok: true, summary: finalSummary, model: config.model, snapshotTimestamp, toolCalls, toolResults };
   }
 
   async runVoiceCommand(transcript: string): Promise<FlowRunResult> {
-    const apiKey = process.env["ANTHROPIC_API_KEY"];
-    const model = process.env["ANTHROPIC_MODEL"] ?? "claude-sonnet-4-0";
-
-    if (!apiKey) {
-      return {
-        ok: false,
-        summary: "Missing ANTHROPIC_API_KEY in .env",
-        model: null,
-        snapshotTimestamp: null,
-        toolCalls: [],
-        toolResults: []
-      };
+    const config = resolveProviderConfig();
+    if ("error" in config) {
+      return { ok: false, summary: config.error, model: null, snapshotTimestamp: null, toolCalls: [], toolResults: [] };
     }
 
-    const messages: Array<{
-      role: "user" | "assistant";
-      content: Array<Record<string, unknown>>;
-    }> = [
+    const messages: InternalMessage[] = [
       {
         role: "user",
         content: [{ type: "text", text: buildVoicePrompt(transcript) }]
@@ -320,7 +309,7 @@ export class AnthropicFlowOrchestrator {
     let finalSummary = "Voice command finished without a summary.";
 
     for (let iteration = 0; iteration < 8; iteration += 1) {
-      const response = await callAnthropic({ apiKey, model, messages });
+      const response = await callProvider({ config, messages });
 
       messages.push({
         role: "assistant",
@@ -363,7 +352,7 @@ export class AnthropicFlowOrchestrator {
       messages.push({ role: "user", content: toolResultBlocks });
     }
 
-    return { ok: true, summary: finalSummary, model, snapshotTimestamp, toolCalls, toolResults };
+    return { ok: true, summary: finalSummary, model: config.model, snapshotTimestamp, toolCalls, toolResults };
   }
 
   private async executeTool(name: string, input: Record<string, unknown>) {
@@ -406,6 +395,23 @@ export class AnthropicFlowOrchestrator {
     }
   }
 }
+
+export function resolveProviderConfig(): ProviderConfig | { error: string } {
+  const provider = (process.env["ORCHESTRATOR_PROVIDER"] ?? "anthropic").toLowerCase();
+
+  if (provider === "openai") {
+    const apiKey = process.env["OPENAI_API_KEY"]?.trim();
+    if (!apiKey) return { error: "ORCHESTRATOR_PROVIDER=openai but OPENAI_API_KEY is not set." };
+    const model = process.env["ORCHESTRATOR_MODEL"]?.trim() || "gpt-4.1";
+    return { provider: "openai", apiKey, model };
+  }
+
+  const apiKey = process.env["ANTHROPIC_API_KEY"]?.trim();
+  if (!apiKey) return { error: "Missing ANTHROPIC_API_KEY in .env" };
+  const model = process.env["ORCHESTRATOR_MODEL"]?.trim() || "claude-sonnet-4-0";
+  return { provider: "anthropic", apiKey, model };
+}
+
 export function buildVoicePrompt(transcript: string): string {
   return [
     `The user said: "${transcript}".`,
@@ -433,11 +439,98 @@ function buildUserPrompt(trackingSummary: ReturnType<TrackingSession["getSummary
   ].join(" ");
 }
 
+function toOpenAIMessages(messages: InternalMessage[]): Array<Record<string, unknown>> {
+  const result: Array<Record<string, unknown>> = [];
+
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      const toolResults = msg.content.filter((b) => b["type"] === "tool_result");
+
+      if (toolResults.length > 0) {
+        for (const tr of toolResults) {
+          result.push({
+            role: "tool",
+            tool_call_id: String(tr["tool_use_id"] ?? ""),
+            content: String(tr["content"] ?? "")
+          });
+        }
+      } else {
+        const text = msg.content
+          .filter((b) => b["type"] === "text")
+          .map((b) => String(b["text"] ?? ""))
+          .join("\n");
+        result.push({ role: "user", content: text });
+      }
+    } else {
+      const textBlocks = msg.content.filter((b) => b["type"] === "text");
+      const toolUses = msg.content.filter((b) => b["type"] === "tool_use");
+
+      if (toolUses.length > 0) {
+        result.push({
+          role: "assistant",
+          content: textBlocks.length > 0
+            ? textBlocks.map((b) => String(b["text"] ?? "")).join("\n")
+            : null,
+          tool_calls: toolUses.map((tu) => ({
+            id: String(tu["id"] ?? ""),
+            type: "function",
+            function: {
+              name: String(tu["name"] ?? ""),
+              arguments: JSON.stringify(tu["input"] ?? {})
+            }
+          }))
+        });
+      } else {
+        result.push({
+          role: "assistant",
+          content: textBlocks.map((b) => String(b["text"] ?? "")).join("\n")
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+function normalizeOpenAIResponse(data: OpenAIResponse): AnthropicResponse {
+  const message = data.choices[0]?.message;
+  const content: AnthropicAssistantBlock[] = [];
+
+  if (message?.content) {
+    content.push({ type: "text", text: message.content });
+  }
+
+  for (const call of message?.tool_calls ?? []) {
+    let input: Record<string, unknown> = {};
+    try {
+      input = JSON.parse(call.function.arguments) as Record<string, unknown>;
+    } catch {
+      input = {};
+    }
+    content.push({ type: "tool_use", id: call.id, name: call.function.name, input });
+  }
+
+  return {
+    content,
+    stop_reason: data.choices[0]?.finish_reason === "tool_calls" ? "tool_use" : "end_turn"
+  };
+}
+
+async function callProvider(input: {
+  config: ProviderConfig;
+  messages: InternalMessage[];
+}): Promise<AnthropicResponse> {
+  if (input.config.provider === "openai") {
+    return callOpenAI({ apiKey: input.config.apiKey, model: input.config.model, messages: input.messages });
+  }
+  return callAnthropic({ apiKey: input.config.apiKey, model: input.config.model, messages: input.messages });
+}
+
 async function callAnthropic(input: {
   apiKey: string;
   model: string;
-  messages: Array<{ role: "user" | "assistant"; content: Array<Record<string, unknown>> }>;
-}) {
+  messages: InternalMessage[];
+}): Promise<AnthropicResponse> {
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -448,8 +541,7 @@ async function callAnthropic(input: {
     body: JSON.stringify({
       model: input.model,
       max_tokens: 1400,
-      system:
-        "You are FlowOS's native desktop orchestrator. Use tools carefully, prefer precise window actions, and never invent tool names or fields.",
+      system: SYSTEM_PROMPT,
       tools: TOOL_DEFINITIONS,
       messages: input.messages
     })
@@ -461,6 +553,33 @@ async function callAnthropic(input: {
   }
 
   return (await response.json()) as AnthropicResponse;
+}
+
+async function callOpenAI(input: {
+  apiKey: string;
+  model: string;
+  messages: InternalMessage[];
+}): Promise<AnthropicResponse> {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${input.apiKey}`
+    },
+    body: JSON.stringify({
+      model: input.model,
+      max_tokens: 1400,
+      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...toOpenAIMessages(input.messages)],
+      tools: TOOL_DEFINITIONS_OPENAI
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
+  }
+
+  return normalizeOpenAIResponse((await response.json()) as OpenAIResponse);
 }
 
 function readString(value: unknown, label: string) {

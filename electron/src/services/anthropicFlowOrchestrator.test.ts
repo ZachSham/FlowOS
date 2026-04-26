@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { buildVoicePrompt, AnthropicFlowOrchestrator } from "./anthropicFlowOrchestrator.js";
+import { buildVoicePrompt, resolveProviderConfig, AnthropicFlowOrchestrator } from "./anthropicFlowOrchestrator.js";
 import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
 import type { TrackingSession } from "./trackingSession.js";
 
@@ -46,18 +46,88 @@ describe("buildVoicePrompt", () => {
   });
 });
 
+describe("resolveProviderConfig", () => {
+  const saved = {
+    ORCHESTRATOR_PROVIDER: process.env["ORCHESTRATOR_PROVIDER"],
+    ORCHESTRATOR_MODEL: process.env["ORCHESTRATOR_MODEL"],
+    ANTHROPIC_API_KEY: process.env["ANTHROPIC_API_KEY"],
+    OPENAI_API_KEY: process.env["OPENAI_API_KEY"]
+  };
+
+  afterEach(() => {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+
+  it("defaults to anthropic when ORCHESTRATOR_PROVIDER is unset", () => {
+    delete process.env["ORCHESTRATOR_PROVIDER"];
+    process.env["ANTHROPIC_API_KEY"] = "sk-ant-test";
+    const config = resolveProviderConfig();
+    expect("error" in config).toBe(false);
+    if (!("error" in config)) {
+      expect(config.provider).toBe("anthropic");
+      expect(config.model).toBe("claude-sonnet-4-0");
+    }
+  });
+
+  it("uses ORCHESTRATOR_MODEL override when set", () => {
+    delete process.env["ORCHESTRATOR_PROVIDER"];
+    process.env["ANTHROPIC_API_KEY"] = "sk-ant-test";
+    process.env["ORCHESTRATOR_MODEL"] = "claude-opus-4-7";
+    const config = resolveProviderConfig();
+    if (!("error" in config)) {
+      expect(config.model).toBe("claude-opus-4-7");
+    }
+  });
+
+  it("returns error when anthropic key is missing", () => {
+    delete process.env["ORCHESTRATOR_PROVIDER"];
+    delete process.env["ANTHROPIC_API_KEY"];
+    const config = resolveProviderConfig();
+    expect("error" in config).toBe(true);
+    if ("error" in config) expect(config.error).toContain("ANTHROPIC_API_KEY");
+  });
+
+  it("uses openai provider when ORCHESTRATOR_PROVIDER=openai", () => {
+    process.env["ORCHESTRATOR_PROVIDER"] = "openai";
+    process.env["OPENAI_API_KEY"] = "sk-openai-test";
+    const config = resolveProviderConfig();
+    expect("error" in config).toBe(false);
+    if (!("error" in config)) {
+      expect(config.provider).toBe("openai");
+      expect(config.model).toBe("gpt-4.1");
+    }
+  });
+
+  it("returns error when openai key is missing", () => {
+    process.env["ORCHESTRATOR_PROVIDER"] = "openai";
+    delete process.env["OPENAI_API_KEY"];
+    const config = resolveProviderConfig();
+    expect("error" in config).toBe(true);
+    if ("error" in config) expect(config.error).toContain("OPENAI_API_KEY");
+  });
+});
+
 describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
-  const originalKey = process.env["ANTHROPIC_API_KEY"];
+  const saved = {
+    ANTHROPIC_API_KEY: process.env["ANTHROPIC_API_KEY"],
+    OPENAI_API_KEY: process.env["OPENAI_API_KEY"],
+    ORCHESTRATOR_PROVIDER: process.env["ORCHESTRATOR_PROVIDER"],
+    ORCHESTRATOR_MODEL: process.env["ORCHESTRATOR_MODEL"]
+  };
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    delete process.env["ORCHESTRATOR_PROVIDER"];
+    delete process.env["ORCHESTRATOR_MODEL"];
   });
 
   afterEach(() => {
-    if (originalKey === undefined) {
-      delete process.env["ANTHROPIC_API_KEY"];
-    } else {
-      process.env["ANTHROPIC_API_KEY"] = originalKey;
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
     }
   });
 
@@ -152,5 +222,43 @@ describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
     const result = await orchestrator.runVoiceCommand("open terminal");
     expect(result.toolCalls).toHaveLength(1);
     expect(result.toolCalls[0]?.name).toBe("activate_app");
+  });
+
+  it("uses OpenAI API format when ORCHESTRATOR_PROVIDER=openai", async () => {
+    process.env["ORCHESTRATOR_PROVIDER"] = "openai";
+    process.env["OPENAI_API_KEY"] = "sk-openai-test";
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "Opened VS Code.", tool_calls: undefined }, finish_reason: "stop" }]
+      })
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const orchestrator = new AnthropicFlowOrchestrator({
+      bridge: makeMockBridge(),
+      trackingSession: makeMockSession()
+    });
+    const result = await orchestrator.runVoiceCommand("open vscode");
+
+    expect(result.ok).toBe(true);
+    expect(result.summary).toBe("Opened VS Code.");
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, { body: string }];
+    expect(url).toContain("openai.com");
+    const body = JSON.parse(init.body) as { messages: Array<{ role: string }> };
+    expect(body.messages[0]?.role).toBe("system");
+  });
+
+  it("returns ok:false when ORCHESTRATOR_PROVIDER=openai but OPENAI_API_KEY missing", async () => {
+    process.env["ORCHESTRATOR_PROVIDER"] = "openai";
+    delete process.env["OPENAI_API_KEY"];
+    const orchestrator = new AnthropicFlowOrchestrator({
+      bridge: makeMockBridge(),
+      trackingSession: makeMockSession()
+    });
+    const result = await orchestrator.runVoiceCommand("open vscode");
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain("OPENAI_API_KEY");
   });
 });
