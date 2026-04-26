@@ -124,6 +124,18 @@ export interface ChromeTabSnapshot {
   active: boolean;
   pinned: boolean;
   windowId: number;
+  index: number;
+  highlighted: boolean;
+  groupId: number | null;
+  openerTabId: number | null;
+  status: "loading" | "complete" | "unloaded" | "unknown";
+  audible: boolean;
+  muted: boolean;
+  discarded: boolean;
+  autoDiscardable: boolean;
+  incognito: boolean;
+  favIconUrl: string;
+  lastAccessed: number | null;
 }
 
 export interface ChromeSnapshot {
@@ -131,6 +143,103 @@ export interface ChromeSnapshot {
   tabs: ChromeTabSnapshot[];
   capturedAt: string;
 }
+
+export type ChromeTabGroupColor =
+  | "grey"
+  | "blue"
+  | "red"
+  | "yellow"
+  | "green"
+  | "pink"
+  | "purple"
+  | "cyan"
+  | "orange";
+
+export interface ChromeCommandPayloadMap {
+  "chrome.tab.focus": {
+    tabId: number;
+  };
+  "chrome.tabs.group": {
+    tabIds: number[];
+    title?: string;
+    color?: ChromeTabGroupColor;
+    windowId?: number;
+  };
+  "chrome.tabs.ungroup": {
+    tabIds: number[];
+  };
+  "chrome.tab.pin": {
+    tabId: number;
+    pinned: boolean;
+  };
+  "chrome.tabs.close": {
+    tabIds: number[];
+  };
+  "chrome.tab.open": {
+    url: string;
+    active?: boolean;
+    pinned?: boolean;
+    windowId?: number;
+  };
+}
+
+export interface ChromeCommandResultMap {
+  "chrome.tab.focus": {
+    focusedTabId: number;
+    windowId: number;
+  };
+  "chrome.tabs.group": {
+    groupId: number;
+    tabIds: number[];
+  };
+  "chrome.tabs.ungroup": {
+    tabIds: number[];
+  };
+  "chrome.tab.pin": {
+    tabId: number;
+    pinned: boolean;
+  };
+  "chrome.tabs.close": {
+    closedTabIds: number[];
+  };
+  "chrome.tab.open": {
+    tabId: number;
+    windowId: number;
+    url: string;
+  };
+}
+
+export type ChromeCommand = keyof ChromeCommandPayloadMap;
+
+export interface ChromeCommandRequest<C extends ChromeCommand = ChromeCommand> {
+  requestId: string;
+  command: C;
+  payload: ChromeCommandPayloadMap[C];
+  issuedAt: string;
+}
+
+export interface ChromeCommandSuccessResult<C extends ChromeCommand = ChromeCommand> {
+  requestId: string;
+  command: C;
+  ok: true;
+  result: ChromeCommandResultMap[C];
+  completedAt: string;
+}
+
+export interface ChromeCommandFailureResult<C extends ChromeCommand = ChromeCommand> {
+  requestId: string;
+  command: C;
+  ok: false;
+  error: {
+    code: string;
+    message: string;
+  };
+  completedAt: string;
+}
+
+export type ChromeCommandResult<C extends ChromeCommand = ChromeCommand> =
+  | ChromeCommandSuccessResult<C>
+  | ChromeCommandFailureResult<C>;
 
 export interface VsCodeSnapshot {
   app: "vscode";
@@ -151,6 +260,29 @@ export type RealtimeMessage =
       type: "extension.handshake";
       source: SignalSource;
       version: string;
+      clientId?: string;
+      token?: string;
+      sentAt?: string;
+    }
+  | {
+      type: "extension.handshake.ack";
+      clientId: string;
+      serverTime: string;
+      source: SignalSource;
+      heartbeatIntervalMs: number;
+      authRequired: boolean;
+    }
+  | {
+      type: "extension.heartbeat";
+      clientId?: string;
+      source: SignalSource;
+      sentAt: string;
+    }
+  | {
+      type: "extension.heartbeat.ack";
+      clientId: string;
+      serverTime: string;
+      source: SignalSource;
     }
   | {
       type: "chrome.snapshot";
@@ -167,6 +299,14 @@ export type RealtimeMessage =
   | {
       type: "suggestions.updated";
       payload: Suggestion[];
+    }
+  | {
+      type: "chrome.command.request";
+      payload: ChromeCommandRequest;
+    }
+  | {
+      type: "chrome.command.result";
+      payload: ChromeCommandResult;
     };
 
 export const demoTaskState: TaskState = {
@@ -222,7 +362,7 @@ export const demoSuggestions: Suggestion[] = [
   }
 ];
 
+export * from "./native-actions.js";
+export * from "./native-events.js";
 export * from "./native-protocol.js";
 export * from "./native-snapshots.js";
-export * from "./native-events.js";
-export * from "./native-actions.js";

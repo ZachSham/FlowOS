@@ -16,11 +16,11 @@ declare module "ws" {
   }
 
   export class WebSocketServer {
-    constructor(options: { port: number });
+    constructor(options: { port: number; host?: string });
 
     on(event: "connection", listener: (socket: WebSocket) => void): this;
+    close(): void;
   }
 
   export default WebSocket;
 }
-

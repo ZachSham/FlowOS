@@ -10,3 +10,4 @@ build
 coverage
 data/
 swift-helper/.build
+test.sh

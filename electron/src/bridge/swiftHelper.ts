@@ -37,9 +37,10 @@ export interface NativeHelperBridge {
 
 export async function startSwiftHelperBridge(): Promise<NativeHelperBridge> {
   const helperCommand = resolveHelperCommand();
+  const helperRoot = resolveHelperRoot();
   const [command, ...args] = helperCommand;
   const child: ChildProcessWithoutNullStreams = spawn(command, args, {
-    cwd: resolve(process.cwd(), "swift-helper"),
+    cwd: helperRoot,
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
@@ -177,16 +178,14 @@ export async function startSwiftHelperBridge(): Promise<NativeHelperBridge> {
 }
 
 function resolveHelperCommand() {
-  const builtBinary = resolve(
-    process.cwd(),
-    "swift-helper",
-    ".build",
-    "arm64-apple-macosx",
-    "debug",
-    "FlowStateHelper"
-  );
+  const helperRoots = resolveHelperRootCandidates();
+  const builtBinaries = helperRoots.flatMap((helperRoot) => [
+    resolve(helperRoot, ".build", "arm64-apple-macosx", "debug", "FlowStateHelper"),
+    resolve(helperRoot, ".build", "debug", "FlowStateHelper")
+  ]);
 
-  if (existsSync(builtBinary)) {
+  const builtBinary = builtBinaries.find((candidate) => existsSync(candidate));
+  if (builtBinary) {
     return [builtBinary, "--stdio"] as [string, ...string[]];
   }
 
@@ -194,8 +193,18 @@ function resolveHelperCommand() {
     "swift",
     "run",
     "--package-path",
-    resolve(process.cwd(), "swift-helper"),
+    resolveHelperRoot(),
     "FlowStateHelper",
     "--stdio"
   ] as [string, ...string[]];
+}
+
+function resolveHelperRoot(): string {
+  return resolveHelperRootCandidates()[0] ?? resolve(process.cwd(), "swift-helper");
+}
+
+function resolveHelperRootCandidates(): string[] {
+  return [resolve(process.cwd(), "swift-helper"), resolve(process.cwd(), "..", "swift-helper")].filter(
+    (candidate) => existsSync(candidate)
+  );
 }

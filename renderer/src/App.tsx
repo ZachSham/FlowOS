@@ -28,9 +28,31 @@ type FlowRunResult = {
     result: unknown;
   }>;
 };
+import { useEffect, useState } from "react";
+import type {
+  ChromeSnapshot,
+  ChromeCommand,
+  ChromeCommandPayloadMap,
+  ChromeCommandResultMap,
+  Suggestion,
+  TaskState
+} from "@flowos/shared";
+import { demoSuggestions, demoTaskState } from "@flowos/shared";
+import { SuggestionList } from "./components/SuggestionList";
 
 type BootstrapState = {
   websocketPort: number;
+  realtimeClients: Array<{
+    id: string;
+    source: string;
+    version: string;
+    connectedAt: string;
+    lastHeartbeatAt: string;
+  }>;
+  chrome: {
+    latestSnapshot: ChromeSnapshot | null;
+    historyPreview: ChromeSnapshot[];
+  };
   swiftHelper: {
     connected: boolean;
     transport: "stdio";
@@ -43,12 +65,22 @@ type BootstrapState = {
   };
 };
 
+type StateUpdatePayload = {
+  taskState: TaskState;
+  suggestions: Suggestion[];
+};
+
 declare global {
   interface Window {
     flowos?: {
       getBootstrapState: () => Promise<BootstrapState>;
       startTracking: () => Promise<TrackingState>;
       enterFlowMode: () => Promise<FlowRunResult>;
+      onStateUpdated: (listener: (state: StateUpdatePayload) => void) => () => void;
+      runChromeCommand: <C extends ChromeCommand>(
+        command: C,
+        payload: ChromeCommandPayloadMap[C]
+      ) => Promise<ChromeCommandResultMap[C]>;
     };
   }
 }
@@ -93,6 +125,20 @@ export function App() {
       .catch((error) => {
         setErrorMessage(error instanceof Error ? error.message : String(error));
       });
+    const unsubscribe = window.flowos.onStateUpdated((state) => {
+      setTaskState(state.taskState);
+      setSuggestions(state.suggestions);
+    });
+
+    void window.flowos.getBootstrapState().then((state) => {
+      setTaskState(state.taskState);
+      setSuggestions(state.suggestions);
+      setWebsocketPort(state.websocketPort);
+    });
+
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   const lastEvent = bootstrap.tracking.recentEvents[0] ?? null;

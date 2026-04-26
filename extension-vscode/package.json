@@ -15,7 +15,17 @@
         "command": "flowos.pushSnapshot",
         "title": "FlowOS: Push Snapshot"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "FlowOS",
+      "properties": {
+        "flowos.token": {
+          "type": "string",
+          "default": "",
+          "description": "Optional shared secret used for authenticating with the local FlowOS realtime server."
+        }
+      }
+    }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
