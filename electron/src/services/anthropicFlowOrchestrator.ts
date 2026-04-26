@@ -1,5 +1,6 @@
 import type { NativeActionResult, SystemSnapshot } from "@flowos/shared";
 import { net } from "electron";
+import { applySplitLayout } from "../actions/splitLayout.js";
 import { createWindowEditor } from "../actions/windowEditor.js";
 import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
 import type { TrackingSession } from "./trackingSession.js";
@@ -95,6 +96,51 @@ const TOOL_DEFINITIONS = [
           height: { type: "number" }
         },
         required: ["windowId", "x", "y", "width", "height"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "split_two_windows",
+      description:
+        "Place exactly two windows side by side within a display frame from get_system_snapshot. Use this for two-window split screen requests. For more than two windows, use set_frame, move_window, and resize_window instead.",
+      parameters: {
+        type: "object",
+        properties: {
+          display: {
+            type: "object",
+            description:
+              "The target display frame copied from get_system_snapshot. Use visibleX/visibleY/visibleWidth/visibleHeight when the user wants the usable visible area.",
+            properties: {
+              id: { type: "string" },
+              x: { type: "number" },
+              y: { type: "number" },
+              width: { type: "number" },
+              height: { type: "number" }
+            },
+            required: ["id", "x", "y", "width", "height"],
+            additionalProperties: false
+          },
+          windowIds: {
+            type: "array",
+            description: "Exactly two window IDs in left-to-right order.",
+            items: { type: "string" },
+            minItems: 2,
+            maxItems: 2
+          },
+          gap: { type: "number", description: "Optional pixels between windows. Defaults to 0." },
+          margin: {
+            type: "number",
+            description: "Optional pixels inset from the display edges. Defaults to 0."
+          },
+          clearFullscreen: {
+            type: "boolean",
+            description: "Whether to clear fullscreen at the target location before moving windows. Defaults to true."
+          }
+        },
+        required: ["display", "windowIds"],
         additionalProperties: false
       }
     }
@@ -320,6 +366,14 @@ export class AnthropicFlowOrchestrator {
           width: readNumber(input.width, "width"),
           height: readNumber(input.height, "height")
         });
+      case "split_two_windows":
+        return applySplitLayout(windowEditor, {
+          display: readDisplay(input.display, "display"),
+          windowIds: readTwoWindowIds(input.windowIds, "windowIds"),
+          gap: readOptionalNumber(input.gap, "gap"),
+          margin: readOptionalNumber(input.margin, "margin"),
+          clearFullscreen: readOptionalBoolean(input.clearFullscreen, "clearFullscreen")
+        });
       case "move_window":
         return windowEditor.move(readString(input.windowId, "windowId"), {
           x: readNumber(input.x, "x"),
@@ -360,6 +414,7 @@ export function buildVoicePrompt(transcript: string): string {
     `The user said: "${transcript}".`,
     "You are controlling the user's Mac through explicit tools only.",
     "First inspect the current state using get_system_snapshot.",
+    "For two-window split screen requests, use split_two_windows with display dimensions from the snapshot; for more than two windows, use set_frame, move_window, and resize_window.",
     "Then execute what the user asked for using only the provided tools.",
     "If the request is ambiguous, make a reasonable interpretation and proceed.",
     "Finish with a short plain-English summary of what you did."
@@ -373,7 +428,9 @@ function buildFlowModePrompt(trackingSummary: ReturnType<TrackingSession["getSum
     `Tracking summary context: ${JSON.stringify(trackingSummary)}.`,
     "First inspect the current computer state using get_system_snapshot.",
     "Relevant development apps for this mode are: Cursor (com.todesktop.230313mzl4w4u92), Codex (com.openai.codex), GitHub Desktop (com.github.GitHubClient), and Terminal (com.apple.Terminal).",
-    "Arrange relevant development windows into a 2x2 layout on the primary display if possible.",
+    "Use split_two_windows when arranging exactly two windows side by side, passing display dimensions from the snapshot.",
+    "If arranging more than two windows, use set_frame, move_window, and resize_window instead of split_two_windows.",
+    "Arrange relevant development windows into a balanced layout on the primary display if possible.",
     "Move irrelevant app windows to the second monitor if one exists. If no second monitor exists, hide irrelevant apps instead.",
     "Make sure to minimize ALL irrelevant application or move them to another display so that the 4 focus applications show properly and evenly for the user",
     "Use the provided tool descriptions as the source of truth for available capabilities.",
@@ -501,6 +558,41 @@ function readNumber(value: unknown, label: string) {
     throw new Error(`${label} must be a finite number`);
   }
   return value;
+}
+
+function readOptionalNumber(value: unknown, label: string) {
+  if (value === undefined) return undefined;
+  return readNumber(value, label);
+}
+
+function readOptionalBoolean(value: unknown, label: string) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "boolean") {
+    throw new Error(`${label} must be a boolean`);
+  }
+  return value;
+}
+
+function readDisplay(value: unknown, label: string) {
+  if (!value || typeof value !== "object") {
+    throw new Error(`${label} must be an object`);
+  }
+
+  const record = value as Record<string, unknown>;
+  return {
+    id: readString(record.id, `${label}.id`),
+    x: readNumber(record.x, `${label}.x`),
+    y: readNumber(record.y, `${label}.y`),
+    width: readNumber(record.width, `${label}.width`),
+    height: readNumber(record.height, `${label}.height`)
+  };
+}
+
+function readTwoWindowIds(value: unknown, label: string) {
+  if (!Array.isArray(value) || value.length !== 2) {
+    throw new Error(`${label} must contain exactly two window IDs`);
+  }
+  return value.map((windowId, index) => readString(windowId, `${label}[${index}]`));
 }
 
 function isSystemSnapshot(value: unknown): value is SystemSnapshot {

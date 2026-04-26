@@ -148,10 +148,14 @@ async function bootstrap() {
     if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
 
     const form = new FormData();
+    const audioBuffer = audioData.buffer.slice(
+      audioData.byteOffset,
+      audioData.byteOffset + audioData.byteLength
+    ) as ArrayBuffer;
     form.append("model", "whisper-1");
     form.append(
       "file",
-      new Blob([audioData], { type: "audio/webm" }),
+      new Blob([audioBuffer], { type: "audio/webm" }),
       "recording.webm"
     );
 

@@ -5,7 +5,7 @@ import type { TrackingSession } from "./trackingSession.js";
 
 function makeMockBridge(): NativeHelperBridge {
   return {
-    request: vi.fn().mockResolvedValue({ ok: true }),
+    request: vi.fn().mockResolvedValue({ applied: true, details: [], warnings: [] }),
     onEvent: vi.fn(),
     getStatus: vi.fn().mockReturnValue({ connected: false, transport: "stdio", command: [] }),
     stop: vi.fn()
@@ -60,6 +60,12 @@ describe("buildVoicePrompt", () => {
   it("instructs the model to call get_system_snapshot first", () => {
     const prompt = buildVoicePrompt("anything");
     expect(prompt).toContain("get_system_snapshot");
+  });
+
+  it("mentions the two-window split tool", () => {
+    const prompt = buildVoicePrompt("split terminal and chrome");
+    expect(prompt).toContain("split_two_windows");
+    expect(prompt).toContain("more than two windows");
   });
 
   it("does not contain hardcoded flow-mode content", () => {
@@ -156,5 +162,46 @@ describe("AnthropicFlowOrchestrator.runVoiceCommand", () => {
     const result = await orchestrator.runVoiceCommand("open terminal");
     expect(result.toolCalls).toHaveLength(1);
     expect(result.toolCalls[0]?.name).toBe("activate_app");
+  });
+
+  it("executes split_two_windows without taking another snapshot", async () => {
+    process.env["OPENAI_API_KEY"] = "test-key";
+    let callCount = 0;
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
+      callCount += 1;
+      return callCount === 1
+        ? openAIToolResponse("split_two_windows", "t1", {
+            display: { id: "display-1", x: 0, y: 0, width: 1200, height: 800 },
+            windowIds: ["ax:1:0", "ax:2:0"],
+            gap: 8,
+            margin: 12,
+            clearFullscreen: false
+          })
+        : openAITextResponse("Split the windows.");
+    }));
+    const bridge = makeMockBridge();
+
+    const orchestrator = new AnthropicFlowOrchestrator({
+      bridge,
+      trackingSession: makeMockSession()
+    });
+    const result = await orchestrator.runVoiceCommand("split these two windows");
+
+    expect(result.toolCalls[0]?.name).toBe("split_two_windows");
+    expect(bridge.request).toHaveBeenCalledWith("window.setFrame", {
+      windowId: "ax:1:0",
+      x: 12,
+      y: 12,
+      width: 584,
+      height: 776
+    });
+    expect(bridge.request).toHaveBeenCalledWith("window.setFrame", {
+      windowId: "ax:2:0",
+      x: 604,
+      y: 12,
+      width: 584,
+      height: 776
+    });
+    expect(bridge.request).not.toHaveBeenCalledWith("system.snapshot", {});
   });
 });
