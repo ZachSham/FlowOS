@@ -107,12 +107,6 @@ async function bootstrap() {
     trackingSession.record(event);
   });
   nativeHelperTelemetry = await startNativeHelperTelemetry(nativeHelperBridge);
-  contextTrigger = startContextTriggerService(
-    nativeHelperBridge,
-    trackingSession,
-    () => flowModeStatus,
-    (mode) => { void runEnterFlowMode(mode); }
-  );
   const flowOrchestrator = new OpenAIFlowOrchestrator({
     bridge: nativeHelperBridge,
     trackingSession,
@@ -168,6 +162,13 @@ async function bootstrap() {
       refreshMenuBar();
     }
   };
+
+  contextTrigger = startContextTriggerService(
+    nativeHelperBridge,
+    trackingSession,
+    () => flowModeStatus,
+    (mode) => { void runEnterFlowMode(mode); }
+  );
 
   const startTracking = () => {
     const tracking = trackingSession.start();

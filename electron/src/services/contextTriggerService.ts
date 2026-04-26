@@ -74,6 +74,10 @@ async function callGptForTrigger(
     throw new Error(`Invalid trigger field: expected boolean, got ${typeof parsed.trigger}`);
   }
 
+  if (parsed.mode !== "coding" && parsed.mode !== "research") {
+    throw new Error(`Invalid mode from GPT: ${String(parsed.mode)}`);
+  }
+
   return parsed;
 }
 
@@ -85,12 +89,16 @@ export function startContextTriggerService(
 ): ContextTriggerHandle {
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastTriggerAt: number | null = null;
-  let lastTriggeredMode: string | null = null;
+  let lastTriggeredMode: "coding" | "research" | null = null;
   let previousApp: string | null = null;
   let stopped = false;
 
   async function handleDebounceExpired(): Promise<void> {
     debounceTimer = null;
+
+    if (stopped) {
+      return;
+    }
 
     // Suppress if flow is running
     if (getFlowStatus() === "running") {
@@ -104,6 +112,10 @@ export function startContextTriggerService(
 
     try {
       const result = await callGptForTrigger(trackingSession, previousApp);
+
+      // Update rate-limit timestamp after every successful GPT call, regardless
+      // of whether it fires a trigger, so cost is bounded to one call per 5 min.
+      lastTriggerAt = Date.now();
 
       if (!result.trigger) {
         return;
@@ -120,7 +132,6 @@ export function startContextTriggerService(
         return;
       }
 
-      lastTriggerAt = Date.now();
       lastTriggeredMode = mode;
       onTrigger(mode);
     } catch (err) {
