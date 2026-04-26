@@ -222,7 +222,7 @@ export const demoSuggestions: Suggestion[] = [
   }
 ];
 
+export * from "./native-actions.js";
+export * from "./native-events.js";
 export * from "./native-protocol.js";
 export * from "./native-snapshots.js";
-export * from "./native-events.js";
-export * from "./native-actions.js";
