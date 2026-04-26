@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net } from "electron";
+import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, net } from "electron";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -39,6 +39,7 @@ let observationService: Awaited<ReturnType<typeof startElectronObservationServic
 let nativeHelperBridge: Awaited<ReturnType<typeof startSwiftHelperBridge>> | null = null;
 let nativeHelperTelemetry: Awaited<ReturnType<typeof startNativeHelperTelemetry>> | null = null;
 let realtimeServer: RealtimeServerHandle | null = null;
+let menuBarTray: Tray | null = null;
 let chromeEditor: ChromeEditor | null = null;
 let chromeHistoryStore: ChromeHistoryStore | null = null;
 let persistentMemoryStore: PersistentMemoryStore | null = null;
@@ -103,31 +104,10 @@ async function bootstrap() {
     runChromeCommand
   });
 
-  ipcMain.handle(ipcChannels.getBootstrapState, () => ({
-    taskState,
-    suggestions,
-    websocketPort: port,
-    swiftHelper: swiftHelperStatus,
-    tracking: trackingSession.getState(),
-    flow: {
-      status: flowModeStatus,
-      lastRun: lastFlowRun
-    },
-    memory: persistentMemoryStore?.getSnapshot() ?? null,
-    realtimeClients: realtimeServer?.getConnectedClients() ?? [],
-    chrome: {
-      latestSnapshot: latestChromeSnapshot,
-      historyPreview: chromeHistoryStore?.getRecent(5) ?? []
-    }
-  }));
-
-  ipcMain.handle(ipcChannels.startTracking, () => {
-    return trackingSession.start();
-  });
-
-  ipcMain.handle(ipcChannels.enterFlowMode, async () => {
+  const runEnterFlowMode = async () => {
     flowModeStatus = "running";
     appendMemoryEntry("flow.mode.start", "Entered flow mode run.");
+    refreshMenuBar();
 
     try {
       const result = await flowOrchestrator.enterDevelopFlowMode();
@@ -157,7 +137,41 @@ async function bootstrap() {
       flowModeStatus = "failed";
       appendMemoryEntry("flow.mode.failed", message);
       return lastFlowRun;
+    } finally {
+      refreshMenuBar();
     }
+  };
+
+  const startTracking = () => {
+    const tracking = trackingSession.start();
+    refreshMenuBar();
+    return tracking;
+  };
+
+  ipcMain.handle(ipcChannels.getBootstrapState, () => ({
+    taskState,
+    suggestions,
+    websocketPort: port,
+    swiftHelper: swiftHelperStatus,
+    tracking: trackingSession.getState(),
+    flow: {
+      status: flowModeStatus,
+      lastRun: lastFlowRun
+    },
+    memory: persistentMemoryStore?.getSnapshot() ?? null,
+    realtimeClients: realtimeServer?.getConnectedClients() ?? [],
+    chrome: {
+      latestSnapshot: latestChromeSnapshot,
+      historyPreview: chromeHistoryStore?.getRecent(5) ?? []
+    }
+  }));
+
+  ipcMain.handle(ipcChannels.startTracking, () => {
+    return startTracking();
+  });
+
+  ipcMain.handle(ipcChannels.enterFlowMode, async () => {
+    return await runEnterFlowMode();
   });
 
   ipcMain.handle(ipcChannels.runVoiceCommand, async (_event, transcript: string) => {
@@ -212,10 +226,85 @@ async function bootstrap() {
     return await runChromeCommand(request.command, request.payload);
   });
 
-  mainWindow = createMainWindow();
+  function ensureBackgroundWindow() {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      mainWindow = createMainWindow({ show: false });
+    }
+
+    return mainWindow;
+  }
+
+  function sendTrayAction(action: "toggle-mic") {
+    const backgroundWindow = ensureBackgroundWindow();
+    if (backgroundWindow.webContents.isLoadingMainFrame()) {
+      backgroundWindow.webContents.once("did-finish-load", () => {
+        if (!backgroundWindow.isDestroyed()) {
+          backgroundWindow.webContents.send(ipcChannels.trayAction, { action });
+        }
+      });
+      return;
+    }
+
+    backgroundWindow.webContents.send(ipcChannels.trayAction, { action });
+  }
+
+  function buildMenuBarMenu() {
+    return Menu.buildFromTemplate([
+      {
+        label: trackingSession.getState().isTracking ? "Tracking Active" : "Start Tracking",
+        enabled: !trackingSession.getState().isTracking,
+        click: () => {
+          startTracking();
+        }
+      },
+      {
+        label: flowModeStatus === "running" ? "Entering Flow Mode..." : "Enter Flow State",
+        enabled: flowModeStatus !== "running",
+        click: () => {
+          void runEnterFlowMode();
+        }
+      },
+      {
+        label: "Toggle Mic",
+        click: () => {
+          sendTrayAction("toggle-mic");
+        }
+      },
+      { type: "separator" },
+      {
+        label: "Quit",
+        click: () => {
+          app.quit();
+        }
+      }
+    ]);
+  }
+
+  function refreshMenuBar() {
+    if (process.platform !== "darwin") {
+      return;
+    }
+
+    if (!menuBarTray) {
+      menuBarTray = new Tray(nativeImage.createEmpty());
+      menuBarTray.setTitle("FlowOS");
+      menuBarTray.setToolTip("FlowOS");
+      menuBarTray.on("click", () => {
+        menuBarTray?.popUpContextMenu(buildMenuBarMenu());
+      });
+    }
+
+    menuBarTray.setContextMenu(buildMenuBarMenu());
+  }
+
+  refreshMenuBar();
+  ensureBackgroundWindow();
 }
 
 app.whenReady().then(() => {
+  if (process.platform === "darwin") {
+    app.setActivationPolicy("accessory");
+  }
   void bootstrap();
 });
 
@@ -226,12 +315,14 @@ app.on("window-all-closed", () => {
 });
 
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    mainWindow = createMainWindow();
+  if (BrowserWindow.getAllWindows().length === 0 && process.platform !== "darwin") {
+    mainWindow = createMainWindow({ show: true });
   }
 });
 
 app.on("before-quit", () => {
+  menuBarTray?.destroy();
+  menuBarTray = null;
   realtimeServer?.stop();
   nativeHelperTelemetry?.stop();
   nativeHelperBridge?.stop();

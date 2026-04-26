@@ -17,6 +17,7 @@ const channels = {
   startTracking: "tracking:start",
   enterFlowMode: "flow:enter",
   stateUpdated: "state:updated",
+  trayAction: "tray:action",
   runChromeCommand: "chrome:run-command",
   runVoiceCommand: "voice:run-command",
   transcribeAudio: "voice:transcribe"
@@ -34,6 +35,15 @@ try {
       ipcRenderer.on(channels.stateUpdated, wrapped);
       return () => {
         ipcRenderer.removeListener(channels.stateUpdated, wrapped);
+      };
+    },
+    onTrayAction: (listener: (action: "toggle-mic") => void) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, payload: { action: "toggle-mic" }) => {
+        listener(payload.action);
+      };
+      ipcRenderer.on(channels.trayAction, wrapped);
+      return () => {
+        ipcRenderer.removeListener(channels.trayAction, wrapped);
       };
     },
     runChromeCommand: <C extends ChromeCommand>(command: C, payload: ChromeCommandPayloadMap[C]) =>

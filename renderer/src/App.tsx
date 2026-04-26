@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVoiceDictation } from "./hooks/useVoiceDictation";
 
 type TrackingEventRecord = {
@@ -50,6 +50,7 @@ declare global {
       getBootstrapState: () => Promise<BootstrapState>;
       startTracking: () => Promise<TrackingState>;
       enterFlowMode: () => Promise<FlowRunResult>;
+      onTrayAction: (listener: (action: "toggle-mic") => void) => () => void;
       runVoiceCommand: (transcript: string) => Promise<FlowRunResult>;
       transcribeAudio: (audioData: Uint8Array) => Promise<string>;
     };
@@ -75,12 +76,17 @@ const fallbackBootstrap: BootstrapState = {
   }
 };
 
+const PUSH_TO_TALK_KEY = "k";
+
 export function App() {
   const [bootstrap, setBootstrap] = useState<BootstrapState>(fallbackBootstrap);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [voiceResult, setVoiceResult] = useState<FlowRunResult | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const keyboardMicActiveRef = useRef(false);
 
   useEffect(() => {
     if (!window.flowos) {
@@ -127,7 +133,7 @@ export function App() {
     }
   }
 
-  async function handleVoiceTranscript(transcript: string) {
+  const handleVoiceTranscript = useCallback(async (transcript: string) => {
     if (!window.flowos) {
       setErrorMessage("Electron preload bridge is unavailable.");
       return;
@@ -147,7 +153,7 @@ export function App() {
     } finally {
       setIsSubmitting(false);
     }
-  }
+  }, []);
 
   const {
     isListening,
@@ -158,7 +164,73 @@ export function App() {
     stop: stopListening
   } = useVoiceDictation(handleVoiceTranscript);
 
-  function handleVoiceButtonClick() {
+  useEffect(() => {
+    function handleGlobalMouseDown(event: MouseEvent) {
+      if (!menuRef.current) {
+        return;
+      }
+      if (!menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleGlobalMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleGlobalMouseDown);
+    };
+  }, []);
+
+  useEffect(() => {
+    function isPushToTalkShortcut(event: KeyboardEvent) {
+      return event.metaKey && event.shiftKey && event.key.toLowerCase() === PUSH_TO_TALK_KEY;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (!voiceSupported || isSubmitting || isListening || keyboardMicActiveRef.current) {
+        return;
+      }
+      if (!isPushToTalkShortcut(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      keyboardMicActiveRef.current = true;
+      startListening();
+    }
+
+    function handleKeyUp(event: KeyboardEvent) {
+      if (!keyboardMicActiveRef.current || event.key.toLowerCase() !== PUSH_TO_TALK_KEY) {
+        return;
+      }
+
+      keyboardMicActiveRef.current = false;
+      if (isListening) {
+        event.preventDefault();
+        stopListening();
+      }
+    }
+
+    function handleWindowBlur() {
+      if (!keyboardMicActiveRef.current) {
+        return;
+      }
+      keyboardMicActiveRef.current = false;
+      if (isListening) {
+        stopListening();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleWindowBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleWindowBlur);
+    };
+  }, [isListening, isSubmitting, startListening, stopListening, voiceSupported]);
+
+  const handleVoiceButtonClick = useCallback(() => {
     if (isSubmitting) {
       return;
     }
@@ -179,7 +251,26 @@ export function App() {
     }
 
     void handleVoiceTranscript(transcript);
-  }
+  }, [
+    handleVoiceTranscript,
+    isListening,
+    isSubmitting,
+    startListening,
+    stopListening,
+    voiceSupported
+  ]);
+
+  useEffect(() => {
+    if (!window.flowos?.onTrayAction) {
+      return;
+    }
+
+    return window.flowos.onTrayAction((action) => {
+      if (action === "toggle-mic") {
+        handleVoiceButtonClick();
+      }
+    });
+  }, [handleVoiceButtonClick]);
 
   async function handleEnterFlowMode() {
     if (!window.flowos) {
@@ -228,45 +319,72 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#162033_0%,#0b1220_48%,#020617_100%)] p-8 text-ink">
-      <div className="mx-auto w-full max-w-2xl rounded-[28px] border border-white/10 bg-slate-950/55 p-8 shadow-[0_30px_100px_rgba(2,6,23,0.55)] backdrop-blur">
-        <div className="text-[11px] uppercase tracking-[0.3em] text-orange-300/75">FlowOS</div>
+    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#162033_0%,#0b1220_48%,#020617_100%)] text-ink">
+      <nav className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/70 px-8 py-4 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
+          <div className="text-[11px] uppercase tracking-[0.3em] text-orange-300/75">FlowOS</div>
+          <div className="relative no-drag" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              disabled={isSubmitting}
+              className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              FlowOS
+            </button>
+            {menuOpen ? (
+              <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-64 rounded-2xl border border-white/15 bg-slate-950/95 p-2 shadow-[0_18px_45px_rgba(2,6,23,0.5)]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void handleStartTracking();
+                  }}
+                  disabled={isSubmitting || bootstrap.tracking.isTracking}
+                  className="mb-2 w-full rounded-xl border border-orange-300/40 bg-orange-300/15 px-3 py-2 text-left text-sm font-medium text-orange-100 transition hover:bg-orange-300/25 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {bootstrap.tracking.isTracking ? "Tracking Active" : "Start Tracking"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void handleEnterFlowMode();
+                  }}
+                  disabled={isSubmitting}
+                  className="mb-2 w-full rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Enter Flow Mode
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    handleVoiceButtonClick();
+                  }}
+                  disabled={isSubmitting}
+                  className={`w-full rounded-xl border px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    isListening
+                      ? "border-red-400/40 bg-red-400/15 text-red-100 hover:bg-red-400/25"
+                      : "border-white/15 bg-white/10 text-white hover:bg-white/15"
+                  }`}
+                >
+                  {voiceSupported ? (isListening ? "Stop Recording" : "Voice Command") : "Type Command"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </nav>
+
+      <div className="mx-auto mt-8 w-full max-w-2xl rounded-[28px] border border-white/10 bg-slate-950/55 p-8 shadow-[0_30px_100px_rgba(2,6,23,0.55)] backdrop-blur">
+
         <h1 className="mt-3 text-3xl font-semibold text-white">Start Tracking, Then Enter Flow</h1>
         <p className="mt-3 text-sm leading-6 text-white/65">
           This window only does two things: track app-level activity and run the LLM-driven develop
           mode layout against a fresh system snapshot.
         </p>
-
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <button
-            type="button"
-            onClick={() => void handleStartTracking()}
-            disabled={isSubmitting || bootstrap.tracking.isTracking}
-            className="rounded-2xl border border-orange-300/40 bg-orange-300/15 px-4 py-3 text-sm font-medium text-orange-100 transition hover:bg-orange-300/25 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {bootstrap.tracking.isTracking ? "Tracking Active" : "Start Tracking"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleEnterFlowMode()}
-            disabled={isSubmitting}
-            className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Enter Flow Mode
-          </button>
-          <button
-            type="button"
-            onClick={handleVoiceButtonClick}
-            disabled={isSubmitting}
-            className={`rounded-2xl border px-4 py-3 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              isListening
-                ? "border-red-400/40 bg-red-400/15 text-red-100 hover:bg-red-400/25"
-                : "border-white/15 bg-white/10 text-white hover:bg-white/15"
-            }`}
-          >
-            {voiceSupported ? (isListening ? "Stop Recording" : "Voice Command") : "Type Command"}
-          </button>
-        </div>
+        <p className="mt-2 text-xs text-white/55">Hold `Cmd+Shift+K` to talk. Release `K` to stop.</p>
 
         {!voiceSupported ? (
           <p className="mt-3 text-xs text-white/55">

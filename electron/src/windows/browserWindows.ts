@@ -6,7 +6,7 @@ const rendererUrl = process.env.FLOWOS_RENDERER_URL ?? "http://127.0.0.1:5173";
 const windowModuleDir = dirname(fileURLToPath(import.meta.url));
 const preloadPath = resolve(windowModuleDir, "../preload.cjs");
 
-export function createMainWindow() {
+export function createMainWindow(options?: { show?: boolean }) {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === "media");
   });
@@ -17,10 +17,12 @@ export function createMainWindow() {
     minWidth: 720,
     minHeight: 620,
     title: "FlowOS",
+    show: options?.show ?? true,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: false
     }
   });
 
