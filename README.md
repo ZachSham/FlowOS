@@ -17,7 +17,7 @@ Under the hood, an OpenAI tool-calling agent reads a live snapshot of your deskt
   - *"Split screen my two most recently used applications."* → reads the rolling 50-event tracking buffer, picks the two most recent `app.activated` events, and tiles those windows on the focused display.
   - *"Bring back Slack on the iPad."* → unhides Slack and moves it to the connected Sidecar display, sized to that display's visible rect.
 - **Three Flow Modes** (under the **Enter Flow State** menu):
-  - **Coding Mode** — IDE (Cursor → Xcode → VS Code fallback) and a coding helper (GitHub Desktop / Codex / Terminal) split-screen on your primary display, every Chrome window pushed to your second display (or hidden if there isn't one), everything else minimized.
+  - **Coding Mode** — IDE (Cursor / Xcode / VS Code) and a coding helper (GitHub Desktop / Codex / Terminal) split-screen on your primary display, every Chrome window pushed to your second display (or hidden if there isn't one), everything else minimized.
   - **Research Mode** — Chrome and a writing companion (Notes / Bear / Obsidian) split-screen on your primary display, an optional grounding app (Spotify / Apple Music) on the second display *only if it's already running*, distractors minimized.
   - **Auto** — requires tracking. Reads the rolling 50-event tracking summary, infers whether your recent activity looks like coding or research, and runs the right playbook. Press it without tracking and FlowOS pops a native dialog asking you to start tracking first instead of guessing.
 - **Multi-display window management**: Move, resize, raise, focus, minimize, hide, and unhide windows across every connected display — including Sidecar / iPad — using the per-display *visible* rect (menu bar and Dock excluded).
@@ -35,9 +35,10 @@ Under the hood, an OpenAI tool-calling agent reads a live snapshot of your deskt
 - Swift toolchain (Xcode command line tools — `xcode-select --install`)
 - Google Chrome (for the browser-control extension)
 - An OpenAI API key with access to `gpt-4o`, `gpt-4.1`, or `gpt-5`, and the Whisper transcription endpoint
-- Granted **Accessibility** and **Screen Recording** permissions for the FlowOS Electron app *and* the Swift helper binary (System Settings → Privacy & Security)
+
 
 ## Setup
+
 
 ### Step 1: Clone and install
 
@@ -78,13 +79,10 @@ This produces `swift-helper/bin/flowos-window-helper`.
 The Chrome extension is what gives FlowOS access to your tabs, windows, and groups. It connects back to Electron over a local WebSocket on port `7331`.
 
 1. Build the extension:
-
-   ```bash
+  ```bash
    npm run build --workspace @flowos/extension-chrome
-   ```
-
+  ```
    This produces `extension-chrome/dist/`.
-
 2. Open Chrome and go to `chrome://extensions`.
 3. Toggle **Developer mode** on (top-right).
 4. Click **Load unpacked** and select the `extension-chrome/dist` folder.
@@ -105,15 +103,13 @@ Or, for a one-shot production build of every package:
 npm run build
 ```
 
-On first launch macOS will prompt for **Accessibility** and **Screen Recording** permissions for both the FlowOS app and `flowos-window-helper`. Grant both — without them the helper cannot read or move windows.
-
 ### Step 5b: Make sure the menu-bar icon can actually appear
 
 Whatever shell or IDE you launched `npm run dev` from (Terminal, iTerm2, Warp, Cursor, VS Code, etc.) is the parent process for FlowOS during development, and macOS gates menu-bar items behind a per-app toggle. If your parent app is toggled off there, the FlowOS tray icon silently fails to appear.
 
 Open **System Settings → Allow in the Menu Bar** and make sure your terminal / IDE is toggled **on**:
 
-> _Applications can add menu bar items to provide extra functionality such as launching a utility or performing tasks when the application isn't open. Turning off a menu bar item will prevent it from ever appearing in the menu bar._
+> *Applications can add menu bar items to provide extra functionality such as launching a utility or performing tasks when the application isn't open. Turning off a menu bar item will prevent it from ever appearing in the menu bar.*
 
 If you use a menu-bar manager like Bartender or Hidden Bar, double-check it isn't auto-hiding the FlowOS icon either.
 
@@ -138,7 +134,7 @@ If the voice button greys out with "Voice capture is not available", your Electr
 ## Architecture
 
 ```text
-                     🎙️ Speech In                🟢 Flow Mode Button
+                     🎙️ Speech In                🟢 Mode Button
                           │                            │
                           ▼                            │
               MediaRecorder (renderer)                 │
@@ -222,16 +218,18 @@ FlowOS/
 - **JSON-RPC over stdio** — Electron ↔ Swift helper protocol
 - **npm workspaces** — monorepo across `electron`, `renderer`, `extension-chrome`, `shared`
 
-## Roadmap
+## Future Roadmap
 
 - Layout memory: remember and replay learned per-task layouts
-- Notification muting + Do Not Disturb integration during Flow Mode
 - Cross-platform Windows path via `node-window-manager`
 
-## Beautiful Pictures
+## Diagram
 
-_Add screenshots of FlowOS in the menu bar, arranging windows, the voice UI, and Chrome tab grouping here._
+![FlowOS architecture diagram](assets/architecture.png)
 
-## Beautiful Video
+## Demo Video
 
-_Add a demo video here. Make sure to unmute — half the magic is hearing the command go in and watching the windows snap into place._
+[![Watch the FlowOS demo](https://img.youtube.com/vi/ZW2hfMUtVX4/maxresdefault.jpg)](https://www.youtube.com/watch?v=ZW2hfMUtVX4)
+
+> Make sure to unmute — half the magic is hearing the command go in and watching the windows snap into place.
+
