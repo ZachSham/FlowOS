@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useVoiceDictation } from "./hooks/useVoiceDictation";
 
 type TrackingEventRecord = {
@@ -82,10 +82,6 @@ export function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [voiceResult, setVoiceResult] = useState<FlowRunResult | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
   useEffect(() => {
     if (!window.flowos) {
       setErrorMessage("Electron preload bridge is unavailable in this window.");
@@ -104,8 +100,6 @@ export function App() {
   }, []);
 
   const lastEvent = bootstrap.tracking.recentEvents[0] ?? null;
-  const toolCallCount = bootstrap.flow.lastRun?.toolCalls.length ?? 0;
-  const secondaryCommand = useMemo(() => bootstrap.swiftHelper.command.join(" "), [bootstrap]);
 
   async function handleStartTracking() {
     if (!window.flowos) {
@@ -141,9 +135,7 @@ export function App() {
     setStatusMessage(`Voice: "${transcript}" — processing...`);
     try {
       const result = await window.flowos.runVoiceCommand(transcript);
-      setVoiceResult(result);
       setStatusMessage(result.ok ? "Voice command completed." : "Voice command failed.");
-      if (!result.ok) setErrorMessage(result.summary);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setErrorMessage(message);
@@ -156,27 +148,10 @@ export function App() {
   const {
     isListening,
     lastTranscript,
-    error: voiceError,
     supported: voiceSupported,
     start: startListening,
     stop: stopListening
   } = useVoiceDictation(handleVoiceTranscript);
-
-  useEffect(() => {
-    function handleGlobalMouseDown(event: MouseEvent) {
-      if (!menuRef.current) {
-        return;
-      }
-      if (!menuRef.current.contains(event.target as Node)) {
-        setMenuOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleGlobalMouseDown);
-    return () => {
-      document.removeEventListener("mousedown", handleGlobalMouseDown);
-    };
-  }, []);
 
   const handleVoiceButtonClick = useCallback(() => {
     if (isSubmitting) {
@@ -278,214 +253,126 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,#162033_0%,#0b1220_48%,#020617_100%)] text-ink">
-      <nav className="sticky top-0 z-30 border-b border-white/10 bg-slate-950/70 px-8 py-4 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between">
-          <div className="text-[11px] uppercase tracking-[0.3em] text-orange-300/75">FlowOS</div>
-          <div className="relative no-drag" ref={menuRef}>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((open) => !open)}
-              disabled={isSubmitting}
-              className="rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              FlowOS
-            </button>
-            {menuOpen ? (
-              <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-64 rounded-2xl border border-white/15 bg-slate-950/95 p-2 shadow-[0_18px_45px_rgba(2,6,23,0.5)]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    void handleStartTracking();
-                  }}
-                  disabled={isSubmitting || bootstrap.tracking.isTracking}
-                  className="mb-2 w-full rounded-xl border border-orange-300/40 bg-orange-300/15 px-3 py-2 text-left text-sm font-medium text-orange-100 transition hover:bg-orange-300/25 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {bootstrap.tracking.isTracking ? "Tracking Active" : "Start Tracking"}
-                </button>
-                <div className="group relative mb-2">
-                  <button
-                    type="button"
-                    disabled={isSubmitting}
-                    className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/15 group-hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <span>Flow State</span>
-                    <span aria-hidden="true" className="text-white/45">‹</span>
-                  </button>
-                  <div className="invisible absolute right-full top-0 z-30 pr-2 opacity-0 transition group-hover:visible group-hover:opacity-100">
-                    <div className="w-48 rounded-2xl border border-white/15 bg-slate-950/95 p-2 shadow-[0_18px_45px_rgba(2,6,23,0.5)]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          void handleEnterFlowMode("coding");
-                        }}
-                        disabled={isSubmitting}
-                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Coding Mode
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          void handleEnterFlowMode("research");
-                        }}
-                        disabled={isSubmitting}
-                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Research Mode
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setMenuOpen(false);
-                          void handleEnterFlowMode("auto");
-                        }}
-                        disabled={isSubmitting}
-                        title={
-                          bootstrap.tracking.isTracking
-                            ? "Infer the right setup from your recent activity"
-                            : "Requires Start Tracking"
-                        }
-                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Auto
-                        <span className="ml-2 text-[10px] uppercase tracking-[0.2em] text-white/40">
-                          {bootstrap.tracking.isTracking ? "from tracking" : "tracking required"}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    handleVoiceButtonClick();
-                  }}
-                  disabled={isSubmitting}
-                  className={`w-full rounded-xl border px-3 py-2 text-left text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                    isListening
-                      ? "border-red-400/40 bg-red-400/15 text-red-100 hover:bg-red-400/25"
-                      : "border-white/15 bg-white/10 text-white hover:bg-white/15"
-                  }`}
-                >
-                  {voiceSupported ? (isListening ? "Stop Recording" : "Voice Command") : "Type Command"}
-                </button>
-              </div>
-            ) : null}
+    <div className="flex h-screen flex-col overflow-hidden bg-[#0c0c0e] text-white" style={{ borderRadius: "14px", border: "1px solid rgba(255,255,255,0.08)" }}>
+      {/* ── Header ── */}
+      <div className="flex shrink-0 items-center justify-between px-4 pb-3 pt-4">
+        <div className="flex items-center gap-2">
+          <div className={`h-2 w-2 rounded-full ${isListening ? "animate-pulse bg-red-400" : "bg-orange-400"}`} />
+          <span className="text-[13px] font-semibold tracking-tight">FlowOS</span>
+        </div>
+        <span className="text-[11px] font-medium text-white/35">{statusMessage}</span>
+      </div>
+
+      {/* ── Mic button ── */}
+      <div className="shrink-0 px-3 pb-3">
+        <button
+          type="button"
+          onClick={handleVoiceButtonClick}
+          disabled={isSubmitting && !isListening}
+          className={`flex w-full items-center gap-3 rounded-xl p-3.5 transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-40 ${
+            isListening
+              ? "bg-red-500/15 ring-1 ring-red-500/30"
+              : "bg-white/[0.05] ring-1 ring-white/[0.08] hover:bg-white/[0.08] hover:ring-white/[0.12]"
+          }`}
+        >
+          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${isListening ? "bg-red-500/25" : "bg-orange-500/15"}`}>
+            <svg className={`h-4 w-4 ${isListening ? "text-red-400" : "text-orange-400"}`} fill="currentColor" viewBox="0 0 20 20">
+              <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4zm-3 6a1 1 0 112 0 4 4 0 008 0 1 1 0 112 0 6 6 0 01-5 5.917V18h2a1 1 0 110 2H9a1 1 0 110-2h2v-2.083A6 6 0 014 10z" />
+            </svg>
           </div>
-        </div>
-      </nav>
-
-      <div className="mx-auto mt-8 w-full max-w-2xl rounded-[28px] border border-white/10 bg-slate-950/55 p-8 shadow-[0_30px_100px_rgba(2,6,23,0.55)] backdrop-blur">
-
-        <h1 className="mt-3 text-3xl font-semibold text-white">Start Tracking, Then Enter Flow</h1>
-        <p className="mt-3 text-sm leading-6 text-white/65">
-          This window only does two things: track app-level activity and run the LLM-driven develop
-          mode layout against a fresh system snapshot.
-        </p>
-        <p className="mt-2 text-xs text-white/55">Press `Cmd+Shift+K` to toggle the mic from anywhere.</p>
-
-        {!voiceSupported ? (
-          <p className="mt-3 text-xs text-white/55">
-            Live speech capture is not available in this window. Use <strong>Type Command</strong>.
-          </p>
-        ) : null}
-
-        <section className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
-          <dl className="space-y-3 text-sm text-white/75">
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-white/45">Status</dt>
-              <dd>{statusMessage}</dd>
+          <div className="min-w-0 flex-1 text-left">
+            <div className="text-[13px] font-medium leading-none">{isListening ? "Listening…" : "Voice Command"}</div>
+            <div className="mt-1 text-[11px] leading-none text-white/35">⌘⇧K to toggle from anywhere</div>
+          </div>
+          {isListening && (
+            <div className="flex shrink-0 items-center gap-0.5">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="w-0.5 animate-pulse rounded-full bg-red-400" style={{ height: `${8 + i * 4}px`, animationDelay: `${i * 0.15}s` }} />
+              ))}
             </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-white/45">Swift helper</dt>
-              <dd>{bootstrap.swiftHelper.connected ? "connected" : "starting"}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-white/45">Tracking</dt>
-              <dd>{bootstrap.tracking.isTracking ? "active" : "idle"}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-white/45">Tracked events</dt>
-              <dd>{bootstrap.tracking.eventCount}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-white/45">Flow status</dt>
-              <dd>{bootstrap.flow.status}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-white/45">Last tool calls</dt>
-              <dd>{toolCallCount}</dd>
-            </div>
-          </dl>
-        </section>
+          )}
+        </button>
 
-        {errorMessage ? (
-          <section className="mt-4 rounded-3xl border border-red-400/25 bg-red-950/30 p-5">
-            <div className="text-[11px] uppercase tracking-[0.3em] text-red-200/75">Error</div>
-            <p className="mt-3 text-sm leading-6 text-red-50/85">{errorMessage}</p>
-          </section>
-        ) : null}
-
-        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr]">
-          <section className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="text-[11px] uppercase tracking-[0.3em] text-white/50">Latest Event</div>
-            {lastEvent ? (
-              <div className="mt-4 rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-                <div className="text-sm font-medium text-white">{lastEvent.summary}</div>
-                <div className="mt-2 text-xs text-white/45">{lastEvent.timestamp}</div>
-              </div>
-            ) : (
-              <p className="mt-4 text-sm text-white/55">No tracked events yet.</p>
-            )}
-          </section>
-
-          <section className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="text-[11px] uppercase tracking-[0.3em] text-white/50">Last Flow Run</div>
-            {bootstrap.flow.lastRun ? (
-              <div className="mt-4 space-y-3">
-                <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-sm leading-6 text-white/75">
-                  {bootstrap.flow.lastRun.summary}
-                </div>
-                <div className="text-xs text-white/45">
-                  Snapshot: {bootstrap.flow.lastRun.snapshotTimestamp ?? "none"}
-                </div>
-              </div>
-            ) : (
-              <p className="mt-4 text-sm text-white/55">No flow mode run yet.</p>
-            )}
-          </section>
-        </div>
-
-        <section className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-5">
-          <div className="text-[11px] uppercase tracking-[0.3em] text-white/50">Bridge Command</div>
-          <p className="mt-4 break-all rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-xs leading-6 text-white/60">
-            {secondaryCommand || "Waiting for helper command..."}
-          </p>
-        </section>
-
-        {(lastTranscript || voiceError || voiceResult) ? (
-          <section className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="text-[11px] uppercase tracking-[0.3em] text-white/50">Voice</div>
-            {lastTranscript ? (
-              <p className="mt-3 text-sm text-white/75">
-                <span className="text-white/45">Heard: </span>
-                {lastTranscript}
-              </p>
-            ) : null}
-            {voiceError ? (
-              <p className="mt-2 text-sm text-red-300/85">{voiceError}</p>
-            ) : null}
-            {voiceResult ? (
-              <p className="mt-2 text-sm text-white/75">{voiceResult.summary}</p>
-            ) : null}
-          </section>
+        {lastTranscript ? (
+          <div className="mt-2 rounded-lg bg-white/[0.04] px-3.5 py-2 ring-1 ring-white/[0.06]">
+            <span className="text-[11px] text-white/40">Heard: </span>
+            <span className="text-[11px] text-white/70">{lastTranscript}</span>
+          </div>
         ) : null}
       </div>
+
+      <div className="mx-3 h-px shrink-0 bg-white/[0.06]" />
+
+      {/* ── Flow Modes ── */}
+      <div className="shrink-0 px-3 py-3">
+        <div className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/25">Flow Modes</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button type="button" onClick={() => void handleEnterFlowMode("coding")} disabled={isSubmitting}
+            className="rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40">
+            <div className="text-[13px] font-medium">Coding</div>
+            <div className="mt-0.5 text-[11px] text-white/35">Dev layout</div>
+          </button>
+          <button type="button" onClick={() => void handleEnterFlowMode("research")} disabled={isSubmitting}
+            className="rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40">
+            <div className="text-[13px] font-medium">Research</div>
+            <div className="mt-0.5 text-[11px] text-white/35">Browser focus</div>
+          </button>
+        </div>
+        <button type="button" onClick={() => void handleEnterFlowMode("auto")} disabled={isSubmitting}
+          className="mt-1.5 flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40">
+          <div>
+            <div className="text-[13px] font-medium">Auto Flow</div>
+            <div className="mt-0.5 text-[11px] text-white/35">{bootstrap.tracking.isTracking ? "Infer from activity" : "Requires tracking"}</div>
+          </div>
+          {bootstrap.tracking.isTracking && <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-orange-400" />}
+        </button>
+        <button type="button" onClick={() => void handleStartTracking()} disabled={isSubmitting || bootstrap.tracking.isTracking}
+          className="mt-1.5 flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40">
+          <div>
+            <div className="text-[13px] font-medium">{bootstrap.tracking.isTracking ? "Tracking Active" : "Start Tracking"}</div>
+            <div className="mt-0.5 text-[11px] text-white/35">
+              {bootstrap.tracking.isTracking ? `${bootstrap.tracking.eventCount} events` : "Record activity context"}
+            </div>
+          </div>
+          {bootstrap.tracking.isTracking && <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
+        </button>
+      </div>
+
+      <div className="mx-3 h-px shrink-0 bg-white/[0.06]" />
+
+      {/* ── Status ── */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <div className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/25">Status</div>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-[12px] text-white/40">Helper</span>
+            <div className="flex items-center gap-1.5">
+              <div className={`h-1.5 w-1.5 rounded-full ${bootstrap.swiftHelper.connected ? "bg-emerald-400" : "bg-amber-400"}`} />
+              <span className="text-[12px] text-white/60">{bootstrap.swiftHelper.connected ? "Connected" : "Starting"}</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-[12px] text-white/40">Flow</span>
+            <span className={`text-[12px] ${
+              bootstrap.flow.status === "completed" ? "text-emerald-400" :
+              bootstrap.flow.status === "failed" ? "text-red-400" :
+              bootstrap.flow.status === "running" ? "text-amber-400" : "text-white/40"
+            }`}>{bootstrap.flow.status}</span>
+          </div>
+          {lastEvent ? (
+            <div className="flex items-center justify-between px-0.5">
+              <span className="text-[12px] text-white/40">Last event</span>
+              <span className="max-w-[160px] truncate text-right text-[12px] text-white/55">{lastEvent.summary}</span>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {isSubmitting ? (
+        <div className="absolute bottom-3 right-3">
+          <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, net, globalShortcut } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, net, globalShortcut, screen } from "electron";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -246,6 +246,9 @@ async function bootstrap() {
   function ensureBackgroundWindow() {
     if (!mainWindow || mainWindow.isDestroyed()) {
       mainWindow = createMainWindow({ show: false });
+      mainWindow.on("blur", () => {
+        mainWindow?.hide();
+      });
     }
 
     return mainWindow;
@@ -330,6 +333,27 @@ async function bootstrap() {
     ]);
   }
 
+  function togglePopover(trayBounds?: Electron.Rectangle) {
+    const win = ensureBackgroundWindow();
+    if (win.isVisible()) {
+      win.hide();
+      return;
+    }
+    if (trayBounds) {
+      const [winWidthRaw] = win.getSize();
+      const winWidth = winWidthRaw ?? 340;
+      const { workAreaSize } = screen.getPrimaryDisplay();
+      const x = Math.max(0, Math.min(
+        Math.round(trayBounds.x + trayBounds.width / 2 - winWidth / 2),
+        workAreaSize.width - winWidth
+      ));
+      const y = Math.round(trayBounds.y + trayBounds.height + 2);
+      win.setPosition(x, y, false);
+    }
+    win.show();
+    win.focus();
+  }
+
   function refreshMenuBar() {
     if (process.platform !== "darwin") {
       return;
@@ -339,12 +363,15 @@ async function bootstrap() {
       menuBarTray = new Tray(nativeImage.createEmpty());
       menuBarTray.setTitle("FlowOS");
       menuBarTray.setToolTip("FlowOS");
-      menuBarTray.on("click", () => {
-        menuBarTray?.popUpContextMenu(buildMenuBarMenu());
+      menuBarTray.on("click", (_event, bounds) => {
+        togglePopover(bounds);
+      });
+      menuBarTray.on("right-click", () => {
+        menuBarTray?.popUpContextMenu(
+          Menu.buildFromTemplate([{ label: "Quit FlowOS", click: () => app.quit() }])
+        );
       });
     }
-
-    menuBarTray.setContextMenu(buildMenuBarMenu());
   }
 
   refreshMenuBar();
