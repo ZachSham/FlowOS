@@ -9,7 +9,7 @@ Under the hood, an OpenAI tool-calling agent reads a live snapshot of your deskt
 ## What It Does
 
 - **Lives in your menu bar**: Click the FlowOS icon for instant access — start tracking, drop into a focus mode, or toggle the mic. Same controls also live in the floating renderer window if you'd rather click around.
-- **Hotkey, then talk**: Hit **⌘⇧K** anywhere on macOS, *speak your request*, then hit **⌘⇧K** again to send. While you're talking the floating control window auto-pops next to the menu-bar icon and glows red (red ring + soft red shadow + animated red dot) so you always know FlowOS is listening. No window to switch to, no button to find — just the keyboard, your voice, and the keyboard again.
+- **Hotkey, then talk**: Hit **⌘⇧K** anywhere on macOS, *speak your request*, then hit **⌘⇧K** again to send. While you're talking the floating control window pops open and glows red (red ring + soft red shadow + animated red dot) so you always know FlowOS is listening. No window to switch to, no button to find — just the keyboard, your voice, and the keyboard again.
 - **Voice commands**: Speak naturally and the agent figures out the moves — Whisper transcribes, the OpenAI agent plans against a live snapshot of your desktop, the windows tile. A few that actually work today:
   - *"Put me in Coding Mode."* → splits Cursor and GitHub Desktop side-by-side on your primary display, pushes every Chrome window to your second display, minimizes Slack / Discord / Mail. ~3-5 seconds end to end.
   - *"Move my Chrome to my second display and group all my tabs by category."* → relocates Chrome to display 2 at full visible-rect size, then takes 30+ ungrouped tabs across multiple Chrome windows and topic-groups them ("Auth", "React", "Hackathon", "Later") without losing one.
@@ -69,10 +69,12 @@ FLOWOS_WS_PORT=7331
 The Swift helper is what actually moves your windows via the macOS Accessibility API.
 
 ```bash
-./swift-helper/scripts/build.sh
+npm run build:swift-helper
 ```
 
-This produces `swift-helper/bin/flowos-window-helper`.
+This runs `swift build` against `swift-helper/Package.swift` and produces `swift-helper/.build/debug/FlowStateHelper`, which Electron's helper bridge auto-discovers on launch.
+
+> If you skip this step, Electron will fall back to `swift run` on first launch and rebuild the helper from source — it works, just slower the first time.
 
 ### Step 4: Build the Chrome extension and load it
 
@@ -121,7 +123,7 @@ When using multiple monitors, make sure your monitors are horizontally aligned i
 
 FlowOS moves windows using macOS global screen coordinates. If two displays are not aligned on the same horizontal axis, a window moved to the secondary display can be placed partially above or below the visible coordinate area. This can make the app appear cut off, with only part of the window visible.
 
-For the most reliable testing setup, open **System Settings → Displays → Arrange**, then drag the displays so their top edges line up.
+For the most reliable testing setup, open **System Settings → Displays → Arrange**, then drag the displays so their bottom edges line up.
 
 ### Quick sanity checks
 
@@ -141,7 +143,7 @@ If the voice button greys out with "Voice capture is not available", your Electr
                           │                            │
                           ▼                            │
                 OpenAI Whisper (STT)                   │
-                  gpt-4o-mini-transcribe               │
+                       whisper-1                       │
                           │                            │
                           └────────────┬───────────────┘
                                        │
@@ -206,12 +208,12 @@ FlowOS/
 
 ## Built With
 
-- **Electron 36+** — multi-process desktop shell, IPC via `contextBridge`, always-on-top control window
+- **Electron 36+** — multi-process desktop shell, IPC via `contextBridge`, frameless transparent control window
 - **TypeScript** — main process, renderer, Chrome extension, shared contracts
 - **React + Vite** — renderer UI (voice button, Flow Mode, status)
 - **Swift 5** — native helper using AppKit, Accessibility API (`AXUIElement`, `kAXRaiseAction`, `kAXPosition`, `kAXSize`), CoreGraphics, `NSScreen`
 - **OpenAI Chat Completions** — agent loop with function calling on GPT-4o / GPT-4.1 / GPT-5 (configurable via `OPENAI_MODEL`)
-- **OpenAI Whisper** — speech-to-text via `gpt-4o-mini-transcribe`
+- **OpenAI Whisper** — speech-to-text via `whisper-1`
 - **MediaRecorder API** — in-renderer audio capture (replaces the `webkitSpeechRecognition` path that does not work in Electron)
 - **Chrome Extension (Manifest V3)** — `chrome.tabs`, `chrome.tabGroups`, `chrome.windows`, talking to Electron over a local WebSocket
 - **WebSocket** — `ws://localhost:7331` event bus between Electron and the extensions
