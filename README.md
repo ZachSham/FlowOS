@@ -1,11 +1,19 @@
-# FlowOS — Voice + Agentic Control Plane for macOS
+# FlowOS — your Mac's menu-bar desktop copilot
 
-FlowOS is a voice-first desktop assistant for macOS. Talk to it (or hit one button) and it rearranges your windows, displays, and Chrome tabs around what you're actually working on. An OpenAI tool-calling agent reads a live snapshot of your desktop — every app, every window, every display, every tab — and drives a native Swift helper plus a Chrome extension to act on it.
+> Talk to your menu bar. Watch your desktop snap into place.
+
+FlowOS lives as a small icon in your macOS menu bar. Click it and a dropdown appears with **Start Tracking**, **Enter Flow State** (which expands into Coding Mode / Research Mode / Auto), and **Toggle Mic**. Hit the mic and tell it what you want — *"split my screen with Cursor, Chrome, Terminal, and Slack"*, *"move Chrome to my second display and group my tabs by topic"*, *"split-screen my two most recently used apps"* — and it does it.
+
+Under the hood, an OpenAI tool-calling agent reads a live snapshot of your desktop (every app, every window, every display, every Chrome tab) and drives a native Swift helper plus a Chrome extension to act on it. Voice in, real action out, in seconds.
 
 ## What It Does
 
-- **Voice commands**: Hold the mic, speak something like *"split my screen four ways with cursor, chrome, terminal, and slack"* — Whisper transcribes it, the agent plans the moves, the windows tile.
-- **Flow Mode**: One click reorganizes your desktop for focused work — dev apps (Cursor, Codex, GitHub Desktop, Terminal) get a 2x2 layout on your primary display, everything else gets pushed to a secondary monitor or hidden.
+- **Lives in your menu bar**: Click the FlowOS icon for instant access — start tracking, drop into a focus mode, or toggle the mic. Same controls also live in the floating renderer window if you'd rather click around.
+- **Voice commands**: Hold the mic, speak something like *"open five tabs to help me learn dynamic programming"* or *"bring back Slack on the iPad"* — Whisper transcribes it, the agent plans the moves, the windows tile.
+- **Three Flow Modes** (under the **Enter Flow State** menu):
+  - **Coding Mode** — IDE (Cursor → Xcode → VS Code fallback) and a coding helper (GitHub Desktop / Codex / Terminal) split-screen on your primary display, every Chrome window pushed to your second display (or hidden if there isn't one), everything else minimized.
+  - **Research Mode** — Chrome and a writing companion (Notes / Bear / Obsidian) split-screen on your primary display, an optional grounding app (Spotify / Apple Music) on the second display *only if it's already running*, distractors minimized.
+  - **Auto** — requires tracking. Reads the rolling 50-event tracking summary, infers whether your recent activity looks like coding or research, and runs the right playbook. Press it without tracking and FlowOS pops a native dialog asking you to start tracking first instead of guessing.
 - **Multi-display window management**: Move, resize, raise, focus, minimize, hide, and unhide windows across every connected display — including Sidecar / iPad — using the per-display *visible* rect (menu bar and Dock excluded).
 - **Geometry-aware tiling**: Layouts are computed against the target display's `visibleX/Y/Width/Height` in macOS's global coordinate space, so windows fit cleanly on whichever monitor you point them at — internal Retina, external 4K, Sidecar iPad, all scaled per-display.
 - **Deterministic two-window split**: A dedicated `split_two_windows` tool computes left/right cells server-side (with optional gap and margin) and applies them in a single atomic frame write per window — no LLM math, no drift.
@@ -93,6 +101,18 @@ npm run build
 
 On first launch macOS will prompt for **Accessibility** and **Screen Recording** permissions for both the FlowOS app and `flowos-window-helper`. Grant both — without them the helper cannot read or move windows.
 
+### Step 5b: Make sure the menu-bar icon can actually appear
+
+Whatever shell or IDE you launched `npm run dev` from (Terminal, iTerm2, Warp, Cursor, VS Code, etc.) is the parent process for FlowOS during development, and macOS gates menu-bar items behind a per-app toggle. If your parent app is toggled off there, the FlowOS tray icon silently fails to appear.
+
+Open **System Settings → Allow in the Menu Bar** and make sure your terminal / IDE is toggled **on**:
+
+> _Applications can add menu bar items to provide extra functionality such as launching a utility or performing tasks when the application isn't open. Turning off a menu bar item will prevent it from ever appearing in the menu bar._
+
+If you use a menu-bar manager like Bartender or Hidden Bar, double-check it isn't auto-hiding the FlowOS icon either.
+
+Quick sanity check: with the app running, the FlowOS icon should appear in the right side of your menu bar. Clicking it gives you Start Tracking / Enter Flow State / Toggle Mic / Quit.
+
 ### Multi-monitor alignment note
 
 When using multiple monitors, make sure your monitors are horizontally aligned in macOS Display Settings. In other words, the displays should share the same bottom y-axis position.
@@ -107,7 +127,7 @@ For the most reliable testing setup, open **System Settings → Displays → Arr
 npm run typecheck    # full repo typecheck
 ```
 
-If the voice button greys out with "Voice capture is not available", your Electron build is missing microphone entitlement — restart `npm run dev`. If voice transcribes but the agent never moves windows, check that the Swift helper has Accessibility permission.
+If the voice button greys out with "Voice capture is not available", your Electron build is missing microphone entitlement — restart `npm run dev`. If you don't see a FlowOS icon in your menu bar at all, see Step 5b above — your shell/IDE is probably toggled off in **System Settings → Allow in the Menu Bar**.
 
 ## Architecture
 
@@ -156,7 +176,7 @@ If the voice button greys out with "Voice capture is not available", your Electr
           snapshots             native events
 ```
 
-The app follows a multi-process Electron architecture:
+The app follows a multi-process Electron architecture — one menu-bar tray icon up top, four cooperating processes underneath:
 
 ```
 FlowOS/
@@ -174,7 +194,7 @@ FlowOS/
 
 ## Operation Flow
 
-1. User triggers a run by **speaking** (mic → MediaRecorder → IPC → Whisper) or pressing **Flow Mode**.
+1. User triggers a run from the menu bar — either **Toggle Mic** to speak (mic → MediaRecorder → IPC → Whisper) or **Enter Flow State → Coding / Research / Auto** to drop into a one-click focus mode. Same actions are also available in the floating renderer window.
 2. The orchestrator captures fresh context: a `system.snapshot` from the Swift helper (apps + windows + every display's geometry), the latest `chrome.snapshot` from the extension, and the rolling 50-event tracking summary.
 3. All of that context is pre-injected into the user prompt alongside the transcript or Flow Mode directive.
 4. The agent loop calls OpenAI with the prompt and the tool schema (`get_system_snapshot`, `move_window`, `resize_window`, `set_frame`, `split_two_windows`, `raise_window`, `minimize_window`, `restore_window`, `activate_app`, `hide_app`, `unhide_app`, `get_chrome_snapshot`, `focus_chrome_tab`, `group_chrome_tabs`, `ungroup_chrome_tabs`, `pin_chrome_tab`, `open_chrome_tab`).
@@ -204,8 +224,8 @@ FlowOS/
 
 ## Beautiful Pictures
 
-_Add screenshots of FlowOS arranging windows, the voice UI, and Chrome tab grouping here._
+_Add screenshots of FlowOS in the menu bar, arranging windows, the voice UI, and Chrome tab grouping here._
 
 ## Beautiful Video
 
-_Add a demo video here. Make sure to unmute._
+_Add a demo video here. Make sure to unmute — half the magic is hearing the command go in and watching the windows snap into place._
