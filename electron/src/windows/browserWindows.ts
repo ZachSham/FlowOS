@@ -13,7 +13,7 @@ export function createMainWindow(options?: { show?: boolean }) {
 
   const mainWindow = new BrowserWindow({
     width: 340,
-    height: 500,
+    height: 420,
     frame: false,
     transparent: true,
     resizable: false,

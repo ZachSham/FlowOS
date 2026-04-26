@@ -6,5 +6,7 @@ export const ipcChannels = {
   trayAction: "tray:action",
   runChromeCommand: "chrome:run-command",
   runVoiceCommand: "voice:run-command",
-  transcribeAudio: "voice:transcribe"
+  transcribeAudio: "voice:transcribe",
+  showWindow: "window:show",
+  hideWindow: "window:hide"
 } as const;

@@ -182,6 +182,16 @@ async function bootstrap() {
     }
   }));
 
+  ipcMain.handle(ipcChannels.showWindow, () => {
+    const win = ensureBackgroundWindow();
+    win.show();
+    win.focus();
+  });
+
+  ipcMain.handle(ipcChannels.hideWindow, () => {
+    mainWindow?.hide();
+  });
+
   ipcMain.handle(ipcChannels.startTracking, () => {
     return startTracking();
   });

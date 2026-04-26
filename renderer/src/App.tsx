@@ -54,6 +54,8 @@ declare global {
       onTrayAction: (listener: (action: "toggle-mic") => void) => () => void;
       runVoiceCommand: (transcript: string) => Promise<FlowRunResult>;
       transcribeAudio: (audioData: Uint8Array) => Promise<string>;
+      showWindow: () => Promise<void>;
+      hideWindow: () => Promise<void>;
     };
   }
 }
@@ -184,6 +186,14 @@ export function App() {
   ]);
 
   useEffect(() => {
+    if (isListening) {
+      void window.flowos?.showWindow();
+    } else {
+      void window.flowos?.hideWindow();
+    }
+  }, [isListening]);
+
+  useEffect(() => {
     if (!window.flowos?.onTrayAction) {
       return;
     }
@@ -253,14 +263,26 @@ export function App() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#0c0c0e] text-white" style={{ borderRadius: "14px", border: "1px solid rgba(255,255,255,0.08)" }}>
+    <div
+      className="flex h-screen flex-col overflow-hidden bg-[#0c0c0e] text-white transition-all duration-200"
+      style={{
+        borderRadius: "14px",
+        border: isListening ? "1px solid rgba(248,113,113,0.6)" : "1px solid rgba(255,255,255,0.08)",
+        boxShadow: isListening ? "0 0 0 3px rgba(239,68,68,0.25), 0 0 20px rgba(239,68,68,0.15)" : "none"
+      }}
+    >
       {/* ── Header ── */}
       <div className="flex shrink-0 items-center justify-between px-4 pb-3 pt-4">
         <div className="flex items-center gap-2">
           <div className={`h-2 w-2 rounded-full ${isListening ? "animate-pulse bg-red-400" : "bg-orange-400"}`} />
           <span className="text-[13px] font-semibold tracking-tight">FlowOS</span>
         </div>
-        <span className="text-[11px] font-medium text-white/35">{statusMessage}</span>
+        {isListening ? (
+          <div className="flex items-center gap-1.5">
+            <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-red-400" />
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-red-400">Listening</span>
+          </div>
+        ) : null}
       </div>
 
       {/* ── Mic button ── */}
@@ -307,27 +329,43 @@ export function App() {
       <div className="shrink-0 px-3 py-3">
         <div className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/25">Flow Modes</div>
         <div className="grid grid-cols-2 gap-1.5">
-          <button type="button" onClick={() => void handleEnterFlowMode("coding")} disabled={isSubmitting}
-            className="rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40">
+          <button
+            type="button"
+            onClick={() => void handleEnterFlowMode("coding")}
+            disabled={isSubmitting}
+            className="rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+          >
             <div className="text-[13px] font-medium">Coding</div>
             <div className="mt-0.5 text-[11px] text-white/35">Dev layout</div>
           </button>
-          <button type="button" onClick={() => void handleEnterFlowMode("research")} disabled={isSubmitting}
-            className="rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40">
+          <button
+            type="button"
+            onClick={() => void handleEnterFlowMode("research")}
+            disabled={isSubmitting}
+            className="rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+          >
             <div className="text-[13px] font-medium">Research</div>
             <div className="mt-0.5 text-[11px] text-white/35">Browser focus</div>
           </button>
         </div>
-        <button type="button" onClick={() => void handleEnterFlowMode("auto")} disabled={isSubmitting}
-          className="mt-1.5 flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40">
+        <button
+          type="button"
+          onClick={() => void handleEnterFlowMode("auto")}
+          disabled={isSubmitting}
+          className="mt-1.5 flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+        >
           <div>
             <div className="text-[13px] font-medium">Auto Flow</div>
             <div className="mt-0.5 text-[11px] text-white/35">{bootstrap.tracking.isTracking ? "Infer from activity" : "Requires tracking"}</div>
           </div>
           {bootstrap.tracking.isTracking && <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-orange-400" />}
         </button>
-        <button type="button" onClick={() => void handleStartTracking()} disabled={isSubmitting || bootstrap.tracking.isTracking}
-          className="mt-1.5 flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40">
+        <button
+          type="button"
+          onClick={() => void handleStartTracking()}
+          disabled={isSubmitting || bootstrap.tracking.isTracking}
+          className="mt-1.5 flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
+        >
           <div>
             <div className="text-[13px] font-medium">{bootstrap.tracking.isTracking ? "Tracking Active" : "Start Tracking"}</div>
             <div className="mt-0.5 text-[11px] text-white/35">
@@ -341,7 +379,7 @@ export function App() {
       <div className="mx-3 h-px shrink-0 bg-white/[0.06]" />
 
       {/* ── Status ── */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div className="shrink-0 px-3 py-3">
         <div className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/25">Status</div>
         <div className="space-y-1.5">
           <div className="flex items-center justify-between px-0.5">
@@ -350,14 +388,6 @@ export function App() {
               <div className={`h-1.5 w-1.5 rounded-full ${bootstrap.swiftHelper.connected ? "bg-emerald-400" : "bg-amber-400"}`} />
               <span className="text-[12px] text-white/60">{bootstrap.swiftHelper.connected ? "Connected" : "Starting"}</span>
             </div>
-          </div>
-          <div className="flex items-center justify-between px-0.5">
-            <span className="text-[12px] text-white/40">Flow</span>
-            <span className={`text-[12px] ${
-              bootstrap.flow.status === "completed" ? "text-emerald-400" :
-              bootstrap.flow.status === "failed" ? "text-red-400" :
-              bootstrap.flow.status === "running" ? "text-amber-400" : "text-white/40"
-            }`}>{bootstrap.flow.status}</span>
           </div>
           {lastEvent ? (
             <div className="flex items-center justify-between px-0.5">
