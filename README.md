@@ -87,10 +87,6 @@ The app watches the current working context across windows, browser tabs, termin
 - macOS Do Not Disturb APIs
 - Slack / Discord mute hooks during active focus sessions
 
-### Data
-
-- SQLite via `better-sqlite3`: sessions, layouts, suggestions, learned preferences, flow scores, handoff state
-
 ### Sidebar UI
 
 - React
@@ -118,7 +114,6 @@ FlowOS/
   extension-vscode/  # VS Code extension
   swift-helper/      # Native macOS helper
   shared/            # Shared TypeScript contracts
-  db/                # SQLite bootstrap and schema
   types/             # Local declaration shims used by the scaffold
 ```
 
@@ -160,9 +155,8 @@ The Electron package currently provides:
 - IPC bootstrap state loading
 - local WebSocket server on port `7331`
 - placeholder Swift helper bridge
-- database initialization on startup
 
-Electron is the central orchestrator. It owns runtime coordination between the UI, native helper, AI layer, DB, and external extensions.
+Electron is the central orchestrator. It owns runtime coordination between the UI, native helper, AI layer, and external extensions.
 
 ### Renderer
 
@@ -194,16 +188,6 @@ The VS Code extension scaffold currently:
 - reports active file, open tabs, and diagnostics
 - exposes a command for pushing a fresh snapshot
 
-### Database
-
-The DB package currently initializes the base SQLite schema with:
-
-- `sessions`
-- `layouts`
-- `suggestions`
-
-This is the starting point for flow sessions, learned workspace layouts, and model-generated suggestions.
-
 ### Swift helper
 
 The Swift helper is currently a package scaffold only. It exists now so native macOS automation can be added without restructuring the repo later.
@@ -220,7 +204,7 @@ Its future responsibilities are:
 
 At runtime, the app is intended to work like this:
 
-1. Electron boots the app, initializes SQLite, starts the local WebSocket server, and creates the main window plus sidebar window.
+1. Electron boots the app, starts the local WebSocket server, and creates the main window plus sidebar window.
 2. The Chrome extension connects to Electron and sends browser tab state.
 3. The VS Code extension connects to Electron and sends editor context.
 4. The Swift helper provides native macOS window events and eventually window-control commands.
@@ -232,9 +216,8 @@ At runtime, the app is intended to work like this:
    - suggested files
    - suggested commands
    - suggested tabs
-8. Electron stores session state and suggestions in SQLite.
-9. Electron pushes the latest state into the renderer through IPC so the sidebar stays current.
-10. User actions in the sidebar trigger actions back through Electron, such as opening a file, running a command, focusing a window, or applying a layout.
+8. Electron pushes the latest state into the renderer through IPC so the sidebar stays current.
+9. User actions in the sidebar trigger actions back through Electron, such as opening a file, running a command, focusing a window, or applying a layout.
 
 ## Local Development
 

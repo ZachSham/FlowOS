@@ -9,7 +9,8 @@ type BootstrapState = {
   websocketPort: number;
   swiftHelper: {
     connected: boolean;
-    socketPath: string;
+    transport: "stdio";
+    command: string[];
   };
 };
 
@@ -50,7 +51,12 @@ export function App() {
 
   if (viewMode === "sidebar") {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,#1e293b_0%,#0f172a_48%,#020617_100%)] px-4 py-5 text-ink">
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top,#1e293b_0%,#0f172a_48%,#020617_100%)] px-4 py-3 text-ink">
+        <div className="drag-region mb-3 flex h-10 items-center justify-between rounded-2xl border border-white/10 bg-black/15 px-4 text-[11px] uppercase tracking-[0.24em] text-white/45">
+          <span>FlowOS Panel</span>
+          <span className="no-drag text-orange-300/70">Drag to move</span>
+        </div>
+
         <div className="mb-5 rounded-3xl border border-orange-400/20 bg-black/20 p-4">
           <div className="text-[11px] uppercase tracking-[0.24em] text-orange-300/75">Flow State</div>
           <h1 className="mt-2 text-xl font-semibold text-white">{taskState.title}</h1>
@@ -95,4 +101,3 @@ export function App() {
     </div>
   );
 }
-

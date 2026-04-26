@@ -8,3 +8,5 @@ build
 *.log
 *.tsbuildinfo
 coverage
+data/
+swift-helper/.build

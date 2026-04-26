@@ -30,11 +30,17 @@ export function createSidebarWindow() {
     width: 360,
     height: 860,
     minWidth: 320,
-    maxWidth: 420,
+    maxWidth: 900,
+    minHeight: 520,
     title: "FlowOS Sidebar",
-    frame: false,
+    frame: true,
     transparent: false,
-    alwaysOnTop: true,
+    alwaysOnTop: false,
+    movable: true,
+    resizable: true,
+    maximizable: true,
+    fullscreenable: true,
+    hasShadow: true,
     skipTaskbar: false,
     webPreferences: {
       preload: join(process.cwd(), "electron", "dist", "preload.js"),
@@ -46,4 +52,3 @@ export function createSidebarWindow() {
   void sidebarWindow.loadURL(resolveRendererEntry("sidebar"));
   return sidebarWindow;
 }
-
