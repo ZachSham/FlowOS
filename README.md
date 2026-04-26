@@ -8,6 +8,7 @@ FlowOS is a voice-first desktop assistant for macOS. Talk to it (or hit one butt
 - **Flow Mode**: One click reorganizes your desktop for focused work — dev apps (Cursor, Codex, GitHub Desktop, Terminal) get a 2x2 layout on your primary display, everything else gets pushed to a secondary monitor or hidden.
 - **Multi-display window management**: Move, resize, raise, focus, minimize, hide, and unhide windows across every connected display — including Sidecar / iPad — using the per-display *visible* rect (menu bar and Dock excluded).
 - **Geometry-aware tiling**: Layouts are computed against the target display's `visibleX/Y/Width/Height` in macOS's global coordinate space, so windows fit cleanly on whichever monitor you point them at — internal Retina, external 4K, Sidecar iPad, all scaled per-display.
+- **Deterministic two-window split**: A dedicated `split_two_windows` tool computes left/right cells server-side (with optional gap and margin) and applies them in a single atomic frame write per window — no LLM math, no drift.
 - **Chrome tab control**: Focus tabs, group tabs by topic, ungroup, pin, open new tabs — across every Chrome window. Closing tabs is intentionally **not** exposed (safety).
 - **Intelligent grouping**: Flow Mode topic-groups Chrome tabs across multiple Chrome windows and consolidates related work without losing anything.
 - **Live state context**: A 50-event ring buffer of native events (app launches/quits/activations, display add/remove) and a fresh system + Chrome snapshot are pre-injected into every voice / Flow run so the agent always knows current desktop state.
@@ -159,9 +160,8 @@ FlowOS/
 ├── swift-helper/                 Native macOS helper (Swift 5)
 │   └── Sources/FlowStateHelper/  AXUIElement, NSScreen, JSON-RPC over stdio
 ├── extension-chrome/             Manifest V3 extension (tabs, tabGroups APIs)
-├── shared/                       Shared TypeScript contracts: SystemSnapshot,
-│                                 ChromeSnapshot, NativeEventEnvelope, etc.
-└── extension-vscode/             VS Code extension (editor context, future)
+└── shared/                       Shared TypeScript contracts: SystemSnapshot,
+                                  ChromeSnapshot, NativeEventEnvelope, etc.
 ```
 
 ## Operation Flow
@@ -169,11 +169,10 @@ FlowOS/
 1. User triggers a run by **speaking** (mic → MediaRecorder → IPC → Whisper) or pressing **Flow Mode**.
 2. The orchestrator captures fresh context: a `system.snapshot` from the Swift helper (apps + windows + every display's geometry), the latest `chrome.snapshot` from the extension, and the rolling 50-event tracking summary.
 3. All of that context is pre-injected into the user prompt alongside the transcript or Flow Mode directive.
-4. The agent loop calls OpenAI with the prompt and the tool schema (`get_system_snapshot`, `move_window`, `resize_window`, `focus_window`, `minimize_window`, `hide_app`, `unhide_app`, `raise_window`, `get_chrome_snapshot`, `focus_chrome_tab`, `group_chrome_tabs`, `ungroup_chrome_tabs`, `pin_chrome_tab`, `open_chrome_tab`).
-5. Each `tool_use` is dispatched to the right backend — the Swift helper for window/display ops, the Chrome extension over WebSocket for tab ops.
+4. The agent loop calls OpenAI with the prompt and the tool schema (`get_system_snapshot`, `move_window`, `resize_window`, `set_frame`, `split_two_windows`, `raise_window`, `focus_window`, `minimize_window`, `restore_window`, `activate_app`, `hide_app`, `unhide_app`, `get_chrome_snapshot`, `focus_chrome_tab`, `group_chrome_tabs`, `ungroup_chrome_tabs`, `pin_chrome_tab`, `open_chrome_tab`).
+5. Each `tool_use` is dispatched by the Electron main process to the right backend: window/display tools go to the Swift helper over JSON-RPC stdio, Chrome tools go to the extension over WebSocket, and a few tools (snapshots, deterministic split layouts) are computed inside Electron itself before being returned as `tool_result`.
 6. Tool results flow back as a `tool_result` message; the agent loops up to 20 iterations, re-snapshotting periodically as state mutates.
-7. On AX hiccups (e.g. raising a window on a Sidecar display returns `kAXErrorCannotComplete`), the helper emits a warning instead of failing the action — the move/resize still applies and the agent continues with the rest of the targets.
-8. When the agent has nothing left to do it returns a plain-English summary, which the renderer displays.
+7. When the agent has nothing left to do it returns a plain-English summary, which the renderer displays.
 
 ## Built With
 
@@ -187,11 +186,10 @@ FlowOS/
 - **Chrome Extension (Manifest V3)** — `chrome.tabs`, `chrome.tabGroups`, `chrome.windows`, talking to Electron over a local WebSocket
 - **WebSocket** — `ws://localhost:7331` event bus between Electron and the extensions
 - **JSON-RPC over stdio** — Electron ↔ Swift helper protocol
-- **npm workspaces** — monorepo across `electron`, `renderer`, `extension-chrome`, `extension-vscode`, `shared`
+- **npm workspaces** — monorepo across `electron`, `renderer`, `extension-chrome`, `shared`
 
 ## Roadmap
 
-- VS Code extension surface (active file, diagnostics, recent edits) feeding into the agent context
 - Layout memory: remember and replay learned per-task layouts
 - Notification muting + Do Not Disturb integration during Flow Mode
 - Cross-platform Windows path via `node-window-manager`
