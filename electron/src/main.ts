@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from "electron";
-import { join } from "node:path";
+import { join, dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   demoSuggestions,
   demoTaskState,
@@ -21,9 +22,6 @@ import { AnthropicFlowOrchestrator, type FlowRunResult } from "./services/anthro
 import { loadDotEnv } from "./services/loadEnv.js";
 import { TrackingSession } from "./services/trackingSession.js";
 import { createMainWindow } from "./windows/browserWindows.js";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createMainWindow, createSidebarWindow } from "./windows/browserWindows.js";
 import { createChromeHistoryStore, type ChromeHistoryStore } from "./realtime/chromeHistoryStore.js";
 import { createChromeEditor, type ChromeEditor } from "./actions/chromeEditor.js";
 
@@ -106,6 +104,11 @@ async function bootstrap() {
     flow: {
       status: flowModeStatus,
       lastRun: lastFlowRun
+    },
+    realtimeClients: realtimeServer?.getConnectedClients() ?? [],
+    chrome: {
+      latestSnapshot: latestChromeSnapshot,
+      historyPreview: chromeHistoryStore?.getRecent(5) ?? []
     }
   }));
 
@@ -136,22 +139,11 @@ async function bootstrap() {
     }
   });
 
-  mainWindow = createMainWindow();
-    realtimeClients: realtimeServer?.getConnectedClients() ?? [],
-    chrome: {
-      latestSnapshot: latestChromeSnapshot,
-      historyPreview: chromeHistoryStore?.getRecent(5) ?? []
-    }
-  }));
-
   ipcMain.handle(ipcChannels.runChromeCommand, async (_event, request: ChromeCommandInvocation) => {
     return await runChromeCommand(request.command, request.payload);
   });
 
   mainWindow = createMainWindow();
-  sidebarWindow = createSidebarWindow();
-  attachPreloadDiagnostics(mainWindow, "main");
-  attachPreloadDiagnostics(sidebarWindow, "sidebar");
 }
 
 app.whenReady().then(() => {
@@ -192,20 +184,30 @@ async function runChromeCommand<C extends ChromeCommand>(
 
   switch (command) {
     case "chrome.tab.focus":
-      return (await chromeEditor.focusTab((payload as ChromeCommandPayloadMap["chrome.tab.focus"]).tabId)) as ChromeCommandResultMap[C];
+      return (await chromeEditor.focusTab(
+        (payload as ChromeCommandPayloadMap["chrome.tab.focus"]).tabId
+      )) as ChromeCommandResultMap[C];
     case "chrome.tabs.group":
-      return (await chromeEditor.groupTabs(payload as ChromeCommandPayloadMap["chrome.tabs.group"])) as ChromeCommandResultMap[C];
+      return (await chromeEditor.groupTabs(
+        payload as ChromeCommandPayloadMap["chrome.tabs.group"]
+      )) as ChromeCommandResultMap[C];
     case "chrome.tabs.ungroup":
-      return (await chromeEditor.ungroupTabs((payload as ChromeCommandPayloadMap["chrome.tabs.ungroup"]).tabIds)) as ChromeCommandResultMap[C];
+      return (await chromeEditor.ungroupTabs(
+        (payload as ChromeCommandPayloadMap["chrome.tabs.ungroup"]).tabIds
+      )) as ChromeCommandResultMap[C];
     case "chrome.tab.pin":
       return (await chromeEditor.pinTab(
         (payload as ChromeCommandPayloadMap["chrome.tab.pin"]).tabId,
         (payload as ChromeCommandPayloadMap["chrome.tab.pin"]).pinned
       )) as ChromeCommandResultMap[C];
     case "chrome.tabs.close":
-      return (await chromeEditor.closeTabs((payload as ChromeCommandPayloadMap["chrome.tabs.close"]).tabIds)) as ChromeCommandResultMap[C];
+      return (await chromeEditor.closeTabs(
+        (payload as ChromeCommandPayloadMap["chrome.tabs.close"]).tabIds
+      )) as ChromeCommandResultMap[C];
     case "chrome.tab.open":
-      return (await chromeEditor.openTab(payload as ChromeCommandPayloadMap["chrome.tab.open"])) as ChromeCommandResultMap[C];
+      return (await chromeEditor.openTab(
+        payload as ChromeCommandPayloadMap["chrome.tab.open"]
+      )) as ChromeCommandResultMap[C];
   }
 
   throw new Error(`Unsupported chrome command: ${String(command)}`);
@@ -255,25 +257,4 @@ function broadcastStateUpdate() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(ipcChannels.stateUpdated, payload);
   }
-
-  if (sidebarWindow && !sidebarWindow.isDestroyed()) {
-    sidebarWindow.webContents.send(ipcChannels.stateUpdated, payload);
-  }
-}
-
-function attachPreloadDiagnostics(window: Electron.BrowserWindow | null, label: string) {
-  if (!window) {
-    return;
-  }
-
-  window.webContents.on("did-finish-load", () => {
-    void window.webContents
-      .executeJavaScript("typeof window.flowos")
-      .then((value) => {
-        console.log(`[flowos][preload] ${label} window.flowos = ${String(value)}`);
-      })
-      .catch((error) => {
-        console.error(`[flowos][preload] ${label} probe failed`, error);
-      });
-  });
 }

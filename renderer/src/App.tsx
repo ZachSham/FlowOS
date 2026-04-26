@@ -28,31 +28,9 @@ type FlowRunResult = {
     result: unknown;
   }>;
 };
-import { useEffect, useState } from "react";
-import type {
-  ChromeSnapshot,
-  ChromeCommand,
-  ChromeCommandPayloadMap,
-  ChromeCommandResultMap,
-  Suggestion,
-  TaskState
-} from "@flowos/shared";
-import { demoSuggestions, demoTaskState } from "@flowos/shared";
-import { SuggestionList } from "./components/SuggestionList";
 
 type BootstrapState = {
   websocketPort: number;
-  realtimeClients: Array<{
-    id: string;
-    source: string;
-    version: string;
-    connectedAt: string;
-    lastHeartbeatAt: string;
-  }>;
-  chrome: {
-    latestSnapshot: ChromeSnapshot | null;
-    historyPreview: ChromeSnapshot[];
-  };
   swiftHelper: {
     connected: boolean;
     transport: "stdio";
@@ -65,22 +43,12 @@ type BootstrapState = {
   };
 };
 
-type StateUpdatePayload = {
-  taskState: TaskState;
-  suggestions: Suggestion[];
-};
-
 declare global {
   interface Window {
     flowos?: {
       getBootstrapState: () => Promise<BootstrapState>;
       startTracking: () => Promise<TrackingState>;
       enterFlowMode: () => Promise<FlowRunResult>;
-      onStateUpdated: (listener: (state: StateUpdatePayload) => void) => () => void;
-      runChromeCommand: <C extends ChromeCommand>(
-        command: C,
-        payload: ChromeCommandPayloadMap[C]
-      ) => Promise<ChromeCommandResultMap[C]>;
     };
   }
 }
@@ -125,20 +93,6 @@ export function App() {
       .catch((error) => {
         setErrorMessage(error instanceof Error ? error.message : String(error));
       });
-    const unsubscribe = window.flowos.onStateUpdated((state) => {
-      setTaskState(state.taskState);
-      setSuggestions(state.suggestions);
-    });
-
-    void window.flowos.getBootstrapState().then((state) => {
-      setTaskState(state.taskState);
-      setSuggestions(state.suggestions);
-      setWebsocketPort(state.websocketPort);
-    });
-
-    return () => {
-      unsubscribe();
-    };
   }, []);
 
   const lastEvent = bootstrap.tracking.recentEvents[0] ?? null;
@@ -305,15 +259,15 @@ export function App() {
                 </div>
               </div>
             ) : (
-              <p className="mt-4 text-sm text-white/55">No flow run yet.</p>
+              <p className="mt-4 text-sm text-white/55">No flow mode run yet.</p>
             )}
           </section>
         </div>
 
         <section className="mt-4 rounded-3xl border border-white/10 bg-white/5 p-5">
           <div className="text-[11px] uppercase tracking-[0.3em] text-white/50">Bridge Command</div>
-          <p className="mt-4 break-all text-xs leading-6 text-white/55">
-            {secondaryCommand || "Helper command unavailable."}
+          <p className="mt-4 break-all rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-xs leading-6 text-white/60">
+            {secondaryCommand || "Waiting for helper command..."}
           </p>
         </section>
       </div>
