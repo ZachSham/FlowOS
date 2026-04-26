@@ -188,8 +188,6 @@ async function bootstrap() {
     const apiKey = process.env["OPENAI_API_KEY"]?.trim();
     if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
 
-    const audioBuffer = new ArrayBuffer(audioData.byteLength);
-    new Uint8Array(audioBuffer).set(audioData);
     const form = new FormData();
     const audioBuffer = audioData.buffer.slice(
       audioData.byteOffset,

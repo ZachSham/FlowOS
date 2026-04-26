@@ -181,7 +181,7 @@ describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
     }));
     const bridge = makeMockBridge();
 
-    const orchestrator = new AnthropicFlowOrchestrator({
+    const orchestrator = new OpenAIFlowOrchestrator({
       bridge,
       trackingSession: makeMockSession()
     });
@@ -202,6 +202,10 @@ describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
       width: 584,
       height: 776
     });
-    expect(bridge.request).not.toHaveBeenCalledWith("system.snapshot", {});
+    expect(
+      (bridge.request as ReturnType<typeof vi.fn>).mock.calls.filter(
+        ([method]) => method === "system.snapshot"
+      )
+    ).toHaveLength(1);
   });
 });
