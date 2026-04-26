@@ -231,6 +231,6 @@ FlowOS/
 
 ## Demo Video
 
-[![Watch the FlowOS demo](https://img.youtube.com/vi/ZW2hfMUtVX4/maxresdefault.jpg)](https://youtu.be/h011ZfVjL3E)
+[![Watch the FlowOS demo](https://img.youtube.com/vi/h011ZfVjL3E/maxresdefault.jpg)](https://youtu.be/h011ZfVjL3E)
 
 > Make sure to unmute — half the magic is hearing the command go in and watching the windows snap into place.
