@@ -21,6 +21,10 @@ import { startNativeHelperTelemetry } from "./telemetry/nativeHelperTelemetry.js
 import { OpenAIFlowOrchestrator, type FlowRunResult } from "./services/openaiFlowOrchestrator.js";
 import { loadDotEnv } from "./services/loadEnv.js";
 import { TrackingSession } from "./services/trackingSession.js";
+import {
+  createPersistentMemoryStore,
+  type PersistentMemoryStore
+} from "./services/persistentMemoryStore.js";
 import { createMainWindow } from "./windows/browserWindows.js";
 import { createChromeHistoryStore, type ChromeHistoryStore } from "./realtime/chromeHistoryStore.js";
 import { createChromeEditor, type ChromeEditor } from "./actions/chromeEditor.js";
@@ -38,6 +42,7 @@ let nativeHelperTelemetry: Awaited<ReturnType<typeof startNativeHelperTelemetry>
 let realtimeServer: RealtimeServerHandle | null = null;
 let chromeEditor: ChromeEditor | null = null;
 let chromeHistoryStore: ChromeHistoryStore | null = null;
+let persistentMemoryStore: PersistentMemoryStore | null = null;
 let latestChromeSnapshot: ChromeSnapshot | null = null;
 let latestVsCodeSnapshot: VsCodeSnapshot | null = null;
 let swiftHelperStatus: SwiftHelperStatus = {
@@ -51,6 +56,14 @@ let flowModeStatus: "idle" | "running" | "completed" | "failed" = "idle";
 
 async function bootstrap() {
   const authToken = process.env.FLOWOS_EXTENSION_TOKEN?.trim();
+  const memoryFilePath =
+    process.env.FLOWOS_MEMORY_PATH?.trim() || join(app.getPath("desktop"), "flowos-memory.md");
+  persistentMemoryStore = await createPersistentMemoryStore(memoryFilePath);
+  appendMemoryEntry("flowos.bootstrap", "FlowOS app bootstrap completed.", {
+    websocketPort: port,
+    memoryFilePath
+  });
+
   chromeHistoryStore = await createChromeHistoryStore(
     join(app.getPath("userData"), "chrome-snapshots.jsonl")
   );
@@ -107,6 +120,7 @@ async function bootstrap() {
       status: flowModeStatus,
       lastRun: lastFlowRun
     },
+    memory: persistentMemoryStore?.getSnapshot() ?? null,
     realtimeClients: realtimeServer?.getConnectedClients() ?? [],
     chrome: {
       latestSnapshot: latestChromeSnapshot,
@@ -120,11 +134,22 @@ async function bootstrap() {
 
   ipcMain.handle(ipcChannels.enterFlowMode, async () => {
     flowModeStatus = "running";
+    appendMemoryEntry("flow.mode.start", "Entered flow mode run.");
 
     try {
       const result = await flowOrchestrator.enterDevelopFlowMode();
       lastFlowRun = result;
       flowModeStatus = result.ok ? "completed" : "failed";
+      appendMemoryEntry(
+        result.ok ? "flow.mode.completed" : "flow.mode.failed",
+        result.summary,
+        {
+          model: result.model,
+          snapshotTimestamp: result.snapshotTimestamp,
+          toolCalls: result.toolCalls,
+          toolResults: result.toolResults
+        }
+      );
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -137,12 +162,26 @@ async function bootstrap() {
         toolResults: []
       };
       flowModeStatus = "failed";
+      appendMemoryEntry("flow.mode.failed", message);
       return lastFlowRun;
     }
   });
 
   ipcMain.handle(ipcChannels.runVoiceCommand, async (_event, transcript: string) => {
-    return await flowOrchestrator.runVoiceCommand(transcript);
+    appendMemoryEntry("voice.command.start", `Voice command started: "${transcript}"`);
+    const result = await flowOrchestrator.runVoiceCommand(transcript);
+    appendMemoryEntry(
+      result.ok ? "voice.command.completed" : "voice.command.failed",
+      result.summary,
+      {
+        transcript,
+        model: result.model,
+        snapshotTimestamp: result.snapshotTimestamp,
+        toolCalls: result.toolCalls,
+        toolResults: result.toolResults
+      }
+    );
+    return result;
   });
 
   ipcMain.handle(ipcChannels.transcribeAudio, async (_event, audioData: Uint8Array) => {
@@ -217,35 +256,49 @@ async function runChromeCommand<C extends ChromeCommand>(
     throw new Error("Chrome editor not initialized");
   }
 
+  let result: ChromeCommandResultMap[C];
   switch (command) {
     case "chrome.tab.focus":
-      return (await chromeEditor.focusTab(
+      result = (await chromeEditor.focusTab(
         (payload as ChromeCommandPayloadMap["chrome.tab.focus"]).tabId
       )) as ChromeCommandResultMap[C];
+      break;
     case "chrome.tabs.group":
-      return (await chromeEditor.groupTabs(
+      result = (await chromeEditor.groupTabs(
         payload as ChromeCommandPayloadMap["chrome.tabs.group"]
       )) as ChromeCommandResultMap[C];
+      break;
     case "chrome.tabs.ungroup":
-      return (await chromeEditor.ungroupTabs(
+      result = (await chromeEditor.ungroupTabs(
         (payload as ChromeCommandPayloadMap["chrome.tabs.ungroup"]).tabIds
       )) as ChromeCommandResultMap[C];
+      break;
     case "chrome.tab.pin":
-      return (await chromeEditor.pinTab(
+      result = (await chromeEditor.pinTab(
         (payload as ChromeCommandPayloadMap["chrome.tab.pin"]).tabId,
         (payload as ChromeCommandPayloadMap["chrome.tab.pin"]).pinned
       )) as ChromeCommandResultMap[C];
+      break;
     case "chrome.tabs.close":
-      return (await chromeEditor.closeTabs(
+      result = (await chromeEditor.closeTabs(
         (payload as ChromeCommandPayloadMap["chrome.tabs.close"]).tabIds
       )) as ChromeCommandResultMap[C];
+      break;
     case "chrome.tab.open":
-      return (await chromeEditor.openTab(
+      result = (await chromeEditor.openTab(
         payload as ChromeCommandPayloadMap["chrome.tab.open"]
       )) as ChromeCommandResultMap[C];
+      break;
+    default:
+      throw new Error(`Unsupported chrome command: ${String(command)}`);
   }
 
-  throw new Error(`Unsupported chrome command: ${String(command)}`);
+  appendMemoryEntry("chrome.command.executed", `Executed ${String(command)}.`, {
+    command,
+    payload,
+    result
+  });
+  return result;
 }
 
 function refreshTaskStateFromSignals() {
@@ -292,4 +345,14 @@ function broadcastStateUpdate() {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(ipcChannels.stateUpdated, payload);
   }
+}
+
+function appendMemoryEntry(title: string, summary: string, data?: unknown) {
+  if (!persistentMemoryStore) {
+    return;
+  }
+
+  void persistentMemoryStore.appendEntry({ title, summary, data }).catch((error) => {
+    console.error("[flowos][memory] failed to append entry", error);
+  });
 }
