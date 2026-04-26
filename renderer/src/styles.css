@@ -23,3 +23,13 @@ button {
   font: inherit;
 }
 
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+  user-select: none;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
