@@ -1,4 +1,10 @@
 import { BrowserWindow } from "electron";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const rendererUrl = process.env.FLOWOS_RENDERER_URL ?? "http://127.0.0.1:5173";
+const windowModuleDir = dirname(fileURLToPath(import.meta.url));
+const preloadPath = resolve(windowModuleDir, "../preload.cjs");
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,10 +18,10 @@ function resolveRendererEntry(view: "main" | "sidebar") {
 
 export function createMainWindow() {
   const mainWindow = new BrowserWindow({
-    width: 1320,
-    height: 860,
-    minWidth: 1024,
-    minHeight: 640,
+    width: 860,
+    height: 760,
+    minWidth: 720,
+    minHeight: 620,
     title: "FlowOS",
     webPreferences: {
       preload: preloadPath,
@@ -24,7 +30,7 @@ export function createMainWindow() {
     }
   });
 
-  void mainWindow.loadURL(resolveRendererEntry("main"));
+  void mainWindow.loadURL(rendererUrl);
   return mainWindow;
 }
 
