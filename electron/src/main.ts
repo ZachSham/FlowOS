@@ -31,6 +31,10 @@ import {
 import { createMainWindow } from "./windows/browserWindows.js";
 import { createChromeHistoryStore, type ChromeHistoryStore } from "./realtime/chromeHistoryStore.js";
 import { createChromeEditor, type ChromeEditor } from "./actions/chromeEditor.js";
+import {
+  startContextTriggerService,
+  type ContextTriggerHandle
+} from "./services/contextTriggerService.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 loadDotEnv(repoRoot);
@@ -47,6 +51,7 @@ let menuBarTray: Tray | null = null;
 let chromeEditor: ChromeEditor | null = null;
 let chromeHistoryStore: ChromeHistoryStore | null = null;
 let persistentMemoryStore: PersistentMemoryStore | null = null;
+let contextTrigger: ContextTriggerHandle | null = null;
 let latestChromeSnapshot: ChromeSnapshot | null = null;
 let swiftHelperStatus: SwiftHelperStatus = {
   connected: false,
@@ -102,6 +107,12 @@ async function bootstrap() {
     trackingSession.record(event);
   });
   nativeHelperTelemetry = await startNativeHelperTelemetry(nativeHelperBridge);
+  contextTrigger = startContextTriggerService(
+    nativeHelperBridge,
+    trackingSession,
+    () => flowModeStatus,
+    (mode) => { void runEnterFlowMode(mode); }
+  );
   const flowOrchestrator = new OpenAIFlowOrchestrator({
     bridge: nativeHelperBridge,
     trackingSession,
@@ -412,6 +423,7 @@ app.on("before-quit", () => {
   globalShortcut.unregisterAll();
   menuBarTray?.destroy();
   menuBarTray = null;
+  contextTrigger?.stop();
   realtimeServer?.stop();
   nativeHelperTelemetry?.stop();
   nativeHelperBridge?.stop();
