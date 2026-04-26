@@ -251,8 +251,7 @@ final class NativeHelperProcess {
                 let app = try self.resolveApp(windowId: windowId)
                 let destination = CGRect(x: x, y: y, width: width, height: height)
                 let preparation = try self.prepareWindowForAction(window, app: app, destination: destination)
-                try self.setWindowSize(window, width: width, height: height)
-                try self.setWindowPosition(window, x: x, y: y)
+                try self.setWindowFrame(window, x: x, y: y, width: width, height: height)
                 return actionResult(
                     details: ["Set frame for \(windowId)"] + preparation.details,
                     warnings: preparation.warnings
@@ -667,6 +666,13 @@ final class NativeHelperProcess {
         guard result == .success else {
             throw NativeHelperError.axFailure("Unable to resize window", result)
         }
+    }
+
+    private func setWindowFrame(_ window: AXUIElement, x: Double, y: Double, width: Double, height: Double) throws {
+        try setWindowPosition(window, x: x, y: y)
+        Thread.sleep(forTimeInterval: 0.08)
+        try setWindowSize(window, width: width, height: height)
+        try setWindowPosition(window, x: x, y: y)
     }
 
     private func windowFrame(_ window: AXUIElement) -> CGRect? {

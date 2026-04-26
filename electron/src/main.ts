@@ -191,6 +191,10 @@ async function bootstrap() {
     const audioBuffer = new ArrayBuffer(audioData.byteLength);
     new Uint8Array(audioBuffer).set(audioData);
     const form = new FormData();
+    const audioBuffer = audioData.buffer.slice(
+      audioData.byteOffset,
+      audioData.byteOffset + audioData.byteLength
+    ) as ArrayBuffer;
     form.append("model", "whisper-1");
     form.append(
       "file",
