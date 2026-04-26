@@ -92,6 +92,34 @@ node voice-lab/execute-cli.mjs "minimize this window"
 
 `move ... to the other screen` requires at least two displays.
 
+## Push-To-Talk CLI (No Web App)
+
+Run voice capture + parse + execute directly in terminal:
+
+```bash
+cd /Users/phdpc/Desktop/flowFinal/FlowOS
+set -a && source .env && set +a
+export VOICE_LAB_LLM_ENABLED=1
+node voice-lab/push-to-talk-cli.mjs
+```
+
+Controls:
+
+- Press `ENTER` to start recording
+- Press `ENTER` again to stop, transcribe, and execute
+- Type `q` then `ENTER` to quit
+
+Recorder requirement:
+
+- Install `ffmpeg` or `sox` (`rec` command)
+- Example: `brew install ffmpeg`
+
+Quick non-voice test:
+
+```bash
+node voice-lab/push-to-talk-cli.mjs --once "open vscode"
+```
+
 ## Window ID Format
 
 For direct window commands, use current helper IDs in `ax:PID:INDEX` format.
@@ -113,4 +141,5 @@ Example: `ax:656:1`
 - `executor.mjs`: transcript execution engine
 - `parse-cli.mjs`: parser tester
 - `execute-cli.mjs`: execute transcript in terminal
+- `push-to-talk-cli.mjs`: terminal push-to-talk runner
 - `server.mjs`: local server + API
