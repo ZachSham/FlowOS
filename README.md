@@ -93,6 +93,14 @@ npm run build
 
 On first launch macOS will prompt for **Accessibility** and **Screen Recording** permissions for both the FlowOS app and `flowos-window-helper`. Grant both — without them the helper cannot read or move windows.
 
+### Multi-monitor alignment note
+
+When using multiple monitors, make sure your monitors are horizontally aligned in macOS Display Settings. In other words, the displays should share the same bottom y-axis position.
+
+FlowOS moves windows using macOS global screen coordinates. If two displays are not aligned on the same horizontal axis, a window moved to the secondary display can be placed partially above or below the visible coordinate area. This can make the app appear cut off, with only part of the window visible.
+
+For the most reliable testing setup, open **System Settings → Displays → Arrange**, then drag the displays so their top edges line up.
+
 ### Quick sanity checks
 
 ```bash
