@@ -12,12 +12,13 @@ export function createMainWindow(options?: { show?: boolean }) {
   });
 
   const mainWindow = new BrowserWindow({
-    width: 860,
-    height: 760,
-    minWidth: 720,
-    minHeight: 620,
-    title: "FlowOS",
-    show: options?.show ?? true,
+    width: 340,
+    height: 500,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: true,
+    show: options?.show ?? false,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
