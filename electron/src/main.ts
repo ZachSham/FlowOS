@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, net } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, net } from "electron";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -17,7 +17,11 @@ import { createRealtimeServer, type RealtimeServerHandle } from "./realtime/serv
 import { startSwiftHelperBridge, type SwiftHelperStatus } from "./bridge/swiftHelper.js";
 import { startElectronObservationService } from "./telemetry/electronObservationService.js";
 import { startNativeHelperTelemetry } from "./telemetry/nativeHelperTelemetry.js";
-import { OpenAIFlowOrchestrator, type FlowRunResult } from "./services/openaiFlowOrchestrator.js";
+import {
+  OpenAIFlowOrchestrator,
+  type FlowMode,
+  type FlowRunResult
+} from "./services/openaiFlowOrchestrator.js";
 import { loadDotEnv } from "./services/loadEnv.js";
 import { TrackingSession } from "./services/trackingSession.js";
 import {
@@ -104,25 +108,36 @@ async function bootstrap() {
     runChromeCommand
   });
 
-  const runEnterFlowMode = async () => {
+  const runEnterFlowMode = async (mode: FlowMode) => {
     flowModeStatus = "running";
-    appendMemoryEntry("flow.mode.start", "Entered flow mode run.");
+    appendMemoryEntry("flow.mode.start", `Entered flow mode run (${mode}).`, { mode });
     refreshMenuBar();
 
     try {
-      const result = await flowOrchestrator.enterDevelopFlowMode();
+      const result = await flowOrchestrator.enterFlowMode(mode);
       lastFlowRun = result;
       flowModeStatus = result.ok ? "completed" : "failed";
       appendMemoryEntry(
         result.ok ? "flow.mode.completed" : "flow.mode.failed",
         result.summary,
         {
+          mode,
           model: result.model,
           snapshotTimestamp: result.snapshotTimestamp,
           toolCalls: result.toolCalls,
           toolResults: result.toolResults
         }
       );
+      if (result.errorCode === "tracking-required") {
+        void dialog.showMessageBox({
+          type: "warning",
+          title: "Tracking required",
+          message: "Tracking required",
+          detail: result.summary,
+          buttons: ["OK"],
+          defaultId: 0
+        });
+      }
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -135,7 +150,7 @@ async function bootstrap() {
         toolResults: []
       };
       flowModeStatus = "failed";
-      appendMemoryEntry("flow.mode.failed", message);
+      appendMemoryEntry("flow.mode.failed", message, { mode });
       return lastFlowRun;
     } finally {
       refreshMenuBar();
@@ -170,8 +185,9 @@ async function bootstrap() {
     return startTracking();
   });
 
-  ipcMain.handle(ipcChannels.enterFlowMode, async () => {
-    return await runEnterFlowMode();
+  ipcMain.handle(ipcChannels.enterFlowMode, async (_event, payload: { mode?: FlowMode } | undefined) => {
+    const mode: FlowMode = payload?.mode === "research" ? "research" : "coding";
+    return await runEnterFlowMode(mode);
   });
 
   ipcMain.handle(ipcChannels.runVoiceCommand, async (_event, transcript: string) => {
@@ -258,11 +274,33 @@ async function bootstrap() {
         }
       },
       {
-        label: flowModeStatus === "running" ? "Entering Flow Mode..." : "Enter Flow State",
+        label: flowModeStatus === "running" ? "Entering Flow State..." : "Enter Flow State",
         enabled: flowModeStatus !== "running",
-        click: () => {
-          void runEnterFlowMode();
-        }
+        submenu: [
+          {
+            label: "Coding Mode",
+            enabled: flowModeStatus !== "running",
+            click: () => {
+              void runEnterFlowMode("coding");
+            }
+          },
+          {
+            label: "Research Mode",
+            enabled: flowModeStatus !== "running",
+            click: () => {
+              void runEnterFlowMode("research");
+            }
+          },
+          {
+            label: trackingSession.getState().isTracking
+              ? "Auto (from tracking)"
+              : "Auto (requires tracking)",
+            enabled: flowModeStatus !== "running",
+            click: () => {
+              void runEnterFlowMode("auto");
+            }
+          }
+        ]
       },
       {
         label: "Toggle Mic",

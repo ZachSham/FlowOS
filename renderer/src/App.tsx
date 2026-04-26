@@ -28,6 +28,7 @@ type FlowRunResult = {
     name: string;
     result: unknown;
   }>;
+  errorCode?: "tracking-required";
 };
 
 type BootstrapState = {
@@ -49,7 +50,7 @@ declare global {
     flowos?: {
       getBootstrapState: () => Promise<BootstrapState>;
       startTracking: () => Promise<TrackingState>;
-      enterFlowMode: () => Promise<FlowRunResult>;
+      enterFlowMode: (mode: "coding" | "research" | "auto") => Promise<FlowRunResult>;
       onTrayAction: (listener: (action: "toggle-mic") => void) => () => void;
       runVoiceCommand: (transcript: string) => Promise<FlowRunResult>;
       transcribeAudio: (audioData: Uint8Array) => Promise<string>;
@@ -272,15 +273,26 @@ export function App() {
     });
   }, [handleVoiceButtonClick]);
 
-  async function handleEnterFlowMode() {
+  async function handleEnterFlowMode(mode: "coding" | "research" | "auto") {
     if (!window.flowos) {
       setErrorMessage("Electron preload bridge is unavailable in this window.");
       return;
     }
 
+    if (mode === "auto" && !bootstrap.tracking.isTracking) {
+      const message =
+        "Tracking required. Click Start Tracking, give it a moment to capture activity, then try again.";
+      setErrorMessage(message);
+      setStatusMessage("Tracking required.");
+      window.alert(message);
+      return;
+    }
+
+    const label = mode === "coding" ? "Coding" : mode === "research" ? "Research" : "Auto Flow";
+
     setIsSubmitting(true);
     setErrorMessage(null);
-    setStatusMessage("Entering flow mode...");
+    setStatusMessage(`Entering ${label} mode...`);
     setBootstrap((current) => ({
       ...current,
       flow: {
@@ -290,7 +302,7 @@ export function App() {
     }));
 
     try {
-      const result = await window.flowos.enterFlowMode();
+      const result = await window.flowos.enterFlowMode(mode);
       setBootstrap((current) => ({
         ...current,
         flow: {
@@ -298,14 +310,14 @@ export function App() {
           lastRun: result
         }
       }));
-      setStatusMessage(result.ok ? "Flow mode completed." : "Flow mode failed.");
+      setStatusMessage(result.ok ? `${label} mode completed.` : `${label} mode failed.`);
       if (!result.ok) {
         setErrorMessage(result.summary);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setErrorMessage(message);
-      setStatusMessage("Flow mode failed.");
+      setStatusMessage(`${label} mode failed.`);
       setBootstrap((current) => ({
         ...current,
         flow: {
@@ -345,17 +357,61 @@ export function App() {
                 >
                   {bootstrap.tracking.isTracking ? "Tracking Active" : "Start Tracking"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    void handleEnterFlowMode();
-                  }}
-                  disabled={isSubmitting}
-                  className="mb-2 w-full rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Enter Flow Mode
-                </button>
+                <div className="group relative mb-2">
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    className="flex w-full items-center justify-between rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/15 group-hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span>Flow State</span>
+                    <span aria-hidden="true" className="text-white/45">‹</span>
+                  </button>
+                  <div className="invisible absolute right-full top-0 z-30 pr-2 opacity-0 transition group-hover:visible group-hover:opacity-100">
+                    <div className="w-48 rounded-2xl border border-white/15 bg-slate-950/95 p-2 shadow-[0_18px_45px_rgba(2,6,23,0.5)]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          void handleEnterFlowMode("coding");
+                        }}
+                        disabled={isSubmitting}
+                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Coding Mode
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          void handleEnterFlowMode("research");
+                        }}
+                        disabled={isSubmitting}
+                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Research Mode
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          void handleEnterFlowMode("auto");
+                        }}
+                        disabled={isSubmitting}
+                        title={
+                          bootstrap.tracking.isTracking
+                            ? "Infer the right setup from your recent activity"
+                            : "Requires Start Tracking"
+                        }
+                        className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Auto
+                        <span className="ml-2 text-[10px] uppercase tracking-[0.2em] text-white/40">
+                          {bootstrap.tracking.isTracking ? "from tracking" : "tracking required"}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => {

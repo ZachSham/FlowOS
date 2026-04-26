@@ -17,6 +17,8 @@ type RunChromeCommand = <C extends ChromeCommand>(
   payload: ChromeCommandPayloadMap[C]
 ) => Promise<ChromeCommandResultMap[C]>;
 
+export type FlowMode = "coding" | "research" | "auto";
+
 interface FlowOrchestratorOptions {
   bridge: NativeHelperBridge;
   trackingSession: TrackingSession;
@@ -48,6 +50,8 @@ interface LLMResponse {
   stop_reason: string | null;
 }
 
+export type FlowRunErrorCode = "tracking-required";
+
 export interface FlowRunResult {
   ok: boolean;
   summary: string;
@@ -58,6 +62,7 @@ export interface FlowRunResult {
     name: string;
     result: unknown;
   }>;
+  errorCode?: FlowRunErrorCode;
 }
 
 interface OpenAIToolCall {
@@ -380,20 +385,34 @@ export class OpenAIFlowOrchestrator {
     this.runChromeCommand = options.runChromeCommand;
   }
 
-  async enterDevelopFlowMode(): Promise<FlowRunResult> {
+  async enterFlowMode(mode: FlowMode): Promise<FlowRunResult> {
+    const trackingSummary = this.trackingSession.getSummary();
+
+    if (mode === "auto" && !trackingSummary.isTracking) {
+      return {
+        ok: false,
+        summary:
+          "Activity tracking required for general Flow State. Click Start Tracking, give it a moment to capture your activity, then try again.",
+        model: null,
+        snapshotTimestamp: null,
+        toolCalls: [],
+        toolResults: [],
+        errorCode: "tracking-required"
+      };
+    }
+
     const { apiKey, model, error } = resolveOpenAIConfig();
     if (error) {
       return { ok: false, summary: error, model: null, snapshotTimestamp: null, toolCalls: [], toolResults: [] };
     }
 
-    const trackingSummary = this.trackingSession.getSummary();
     const initialSystemSnapshot = await this.safeSystemSnapshot();
     const initialChromeSnapshot = this.safeChromeSnapshot();
     return this.runLoop({
       apiKey: apiKey!,
       model: model!,
-      initialPrompt: buildFlowModePrompt(trackingSummary, initialSystemSnapshot, initialChromeSnapshot),
-      emptySummary: "Flow mode finished without a final summary."
+      initialPrompt: buildFlowModePrompt(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot),
+      emptySummary: `Flow mode (${mode}) finished without a final summary.`
     });
   }
 
@@ -636,33 +655,77 @@ export function buildVoicePrompt(
   ].join(" ");
 }
 
-function buildFlowModePrompt(
+function flowModeBaseInstructions(
+  mode: FlowMode,
   trackingSummary: ReturnType<TrackingSession["getSummary"]>,
   initialSystemSnapshot: SystemSnapshot | null,
   initialChromeSnapshot: ChromeSnapshot | null
-) {
+): string[] {
   return [
-    "Enter Flow Mode for default develop mode.",
+    `Enter Flow Mode in "${mode}" mode.`,
     "You are controlling the user's Mac through explicit tools only.",
     `Tracking summary context: ${JSON.stringify(trackingSummary)}.`,
     `Initial system snapshot context: ${JSON.stringify(initialSystemSnapshot)}.`,
     `Initial Chrome snapshot context: ${JSON.stringify(initialChromeSnapshot)}.`,
     "Treat the snapshots above as the most recent ground truth; call get_system_snapshot or get_chrome_snapshot again only if you need fresher data after acting.",
     DISPLAY_GEOMETRY_RULES,
-    "Relevant development apps for this mode are: Cursor (com.todesktop.230313mzl4w4u92), Codex (com.openai.codex), GitHub Desktop (com.github.GitHubClient), and Terminal (com.apple.Terminal).",
     "Use split_two_windows when arranging exactly two windows side by side, passing display dimensions from the snapshot.",
     "If arranging more than two windows, use set_frame, move_window, and resize_window instead of split_two_windows.",
-    "Arrange relevant development windows into a 2x2 layout on the primary display using the geometry rules above (compute slots from the primary display's visibleX/visibleY/visibleWidth/visibleHeight).",
-    "Move irrelevant app windows to the second monitor if one exists, sized to fit that display's visible rect; if no second monitor exists, hide irrelevant apps instead.",
-    "Make sure to minimize ALL irrelevant application or move them to another display so that the 4 focus applications show properly and evenly for the user.",
-    "Before any Google Chrome tab manipulation, call get_chrome_snapshot to refresh tab/group/window state, then organize tabs by topic into tab groups.",
-    "Consolidate related tabs across multiple Chrome windows when useful by grouping them into a chosen target window.",
+    "Before any Google Chrome tab manipulation, call get_chrome_snapshot to refresh tab/group/window state.",
     "Never close or delete Chrome tabs whatsoever. Prefer grouping, ungrouping, pinning, focusing.",
     "Use the provided tool descriptions as the source of truth for available capabilities.",
     "If a tool call fails for one target (e.g. one window can't be raised on a Sidecar/iPad display), do not abort: continue with the remaining targets and mention any skipped items in the final summary.",
     "After applying actions, call get_system_snapshot again to verify the layout and call more functions if necessary.",
     "Finish with a short plain-English summary of what you did and any gaps."
-  ].join(" ");
+  ];
+}
+
+const CODING_MODE_INSTRUCTIONS: string[] = [
+  "Coding mode goal: set up a focused two-display coding environment.",
+  "Focus apps: an IDE AND a coding support app (GitHub Desktop, Codex, Terminal etc.",
+  "On the PRIMARY display: use split_two_windows to place the IDE and the coding support app side-by-side, filling the entire visible rect of that display.",
+  "If a SECOND display exists: move the Google Chrome window or something relevant to that display, each sized to fill its visible rect (move_window + resize_window, or set_frame); keep all Chrome tabs intact.",
+  "If NO second display exists: hide Chrome with hide_app instead of moving it, so the IDE+support split stays clean.",
+  "Minimize or hide every other app window so only the IDE, the coding support app, and Chrome (on display 2 if present) remain visible.",
+  "Do not relaunch apps that are already running; only act on apps present in the system snapshot."
+];
+
+const RESEARCH_MODE_INSTRUCTIONS: string[] = [
+  "Research mode goal: set up a focused two-display reading + writing environment.",
+  "Focus apps: Google Chrome for sources, AND a writing companion (Notion, Apple Notes etc).",
+  "On the PRIMARY display: use split_two_windows to place Chrome and the writing companion side-by-side, filling the entire visible rect of that display.",
+  "On the SECOND display (if it exists): place exactly one grounding app, sized to fill that display's visible rect:  Spotify, Apple Music or leave the second display empty - do not launch anything new and do not move other apps there.",
+  "If NO second display exists, do not place a grounding app at all.",
+  "Minimize or hide every other app window (Slack, Discord, Mail, Messages, social apps, IDEs, terminals, etc.) so only Chrome, the writing companion, and the optional grounding app remain visible.",
+  "Do not relaunch apps that are already running; only act on apps present in the system snapshot."
+];
+
+const AUTO_MODE_INSTRUCTIONS: string[] = [
+  "Auto Flow State goal: infer what the user is trying to focus on from the tracking summary above and configure their displays accordingly.",
+  "Use the tracking summary as the PRIMARY signal: examine recentEvents (most recent first) and countsByEvent. Frequent app.activated / app.launched events for the same app cluster reveal current intent.",
+  "Coding signal indicators: repeated activations of an IDE (Cursor com.todesktop.230313mzl4w4u92, VS Code com.microsoft.VSCode, Xcode com.apple.dt.Xcode), Terminal (com.apple.Terminal), GitHub Desktop (com.github.GitHubClient), or Codex (com.openai.codex). If coding signals dominate, follow the CODING playbook below.",
+  "Research / writing signal indicators: repeated activations of Google Chrome (com.google.Chrome) interleaved with a notes app (Apple Notes com.apple.Notes, Bear net.shinyfrog.bear, or Obsidian md.obsidian), or a heavy Chrome tab list with reading-style URLs in the Chrome snapshot. If research signals dominate, follow the RESEARCH playbook below.",
+  "If signals are mixed or weak, pick the playbook whose focus apps the user has touched most recently and proceed; do not ask the user.",
+  "CODING playbook: on the PRIMARY display, split_two_windows between the IDE and a coding support app (GitHub Desktop preferred, otherwise Codex, otherwise Terminal), filling the visible rect. If a SECOND display exists, move all Chrome windows there sized to fill its visible rect; if no second display, hide_app Chrome. Minimize or hide every other window. Never close Chrome tabs.",
+  "RESEARCH playbook: on the PRIMARY display, split_two_windows between Chrome and a writing companion (Apple Notes preferred, otherwise Bear, otherwise Obsidian), filling the visible rect. If a SECOND display exists, place exactly one grounding app (Spotify com.spotify.client preferred, otherwise Apple Music com.apple.Music) sized to fill it - but only if it is currently running; never launch a new grounding app. Minimize or hide every other window.",
+  "Do not relaunch apps that are already running; only act on apps present in the system snapshot. If a chosen focus app is not running, fall back to the next preference in the priority list.",
+  "In the final summary, briefly state which playbook you chose and the top 1-2 tracking signals that drove the decision."
+];
+
+function buildFlowModePrompt(
+  mode: FlowMode,
+  trackingSummary: ReturnType<TrackingSession["getSummary"]>,
+  initialSystemSnapshot: SystemSnapshot | null,
+  initialChromeSnapshot: ChromeSnapshot | null
+) {
+  const base = flowModeBaseInstructions(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot);
+  const modeSpecific =
+    mode === "coding"
+      ? CODING_MODE_INSTRUCTIONS
+      : mode === "research"
+        ? RESEARCH_MODE_INSTRUCTIONS
+        : AUTO_MODE_INSTRUCTIONS;
+  return [...base, ...modeSpecific].join(" ");
 }
 
 function toOpenAIMessages(messages: InternalMessage[]): Array<Record<string, unknown>> {

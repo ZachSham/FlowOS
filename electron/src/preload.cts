@@ -27,7 +27,8 @@ try {
   contextBridge.exposeInMainWorld("flowos", {
     getBootstrapState: () => ipcRenderer.invoke(channels.getBootstrapState),
     startTracking: () => ipcRenderer.invoke(channels.startTracking),
-    enterFlowMode: () => ipcRenderer.invoke(channels.enterFlowMode),
+    enterFlowMode: (mode: "coding" | "research") =>
+      ipcRenderer.invoke(channels.enterFlowMode, { mode }),
     onStateUpdated: (listener: (state: StateUpdatePayload) => void) => {
       const wrapped = (_event: Electron.IpcRendererEvent, payload: StateUpdatePayload) => {
         listener(payload);
