@@ -1,5 +1,7 @@
 import type { NativeMethod, NativeRequestPayloadMap } from "@flowos/shared";
 import { startSwiftHelperBridge } from "../bridge/swiftHelper.js";
+import { applySplitLayout, type ApplySplitLayoutInput } from "./splitLayout.js";
+import { createWindowEditor } from "./windowEditor.js";
 
 const [methodArg, payloadArg] = process.argv.slice(2);
 
@@ -9,8 +11,10 @@ if (!methodArg) {
   process.exit(1);
 }
 
-const method = methodArg as NativeMethod;
-let payload: NativeRequestPayloadMap[NativeMethod];
+type LocalMethod = NativeMethod | "layout.applySplit";
+
+const method = methodArg as LocalMethod;
+let payload: NativeRequestPayloadMap[NativeMethod] | ApplySplitLayoutInput;
 
 try {
   payload = payloadArg ? JSON.parse(payloadArg) : {};
@@ -22,7 +26,11 @@ try {
 const bridge = await startSwiftHelperBridge();
 
 try {
-  const result = await bridge.request(method, payload);
+  const editor = createWindowEditor(bridge);
+  const result =
+    method === "layout.applySplit"
+      ? await applySplitLayout(editor, payload as ApplySplitLayoutInput)
+      : await bridge.request(method, payload as NativeRequestPayloadMap[NativeMethod]);
   console.log(JSON.stringify(result, null, 2));
 } finally {
   bridge.stop();
