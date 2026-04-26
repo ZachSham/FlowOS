@@ -351,7 +351,7 @@ export class AnthropicFlowOrchestrator {
 function resolveOpenAIConfig(): { apiKey?: string; model?: string; error?: string } {
   const apiKey = process.env["OPENAI_API_KEY"]?.trim();
   if (!apiKey) return { error: "OPENAI_API_KEY is not set." };
-  const model = process.env["OPENAI_MODEL"]?.trim() || "gpt-4.1";
+  const model = process.env["OPENAI_MODEL"]?.trim() || "gpt-4.1-mini";
   return { apiKey, model };
 }
 
@@ -464,7 +464,10 @@ async function callOpenAI(input: {
   model: string;
   messages: InternalMessage[];
 }): Promise<LLMResponse> {
-  const response = await net.fetch("https://api.openai.com/v1/chat/completions", {
+  const electronFetch = (net as unknown as { fetch?: typeof fetch } | undefined)?.fetch;
+  const activeFetch = electronFetch ?? fetch;
+
+  const response = await activeFetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       "content-type": "application/json",
