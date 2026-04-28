@@ -894,16 +894,16 @@ function trimToBudget(messages: LocalInferenceMessage[]): LocalInferenceMessage[
 
   budget -= firstCost;
 
-  // Fill remaining budget with the most recent messages
-  const result: LocalInferenceMessage[] = [first];
+  // Fill remaining budget with the most recent messages, preserving order
+  const tail: LocalInferenceMessage[] = [];
   for (let i = capped.length - 1; i >= 1; i--) {
     const cost = estimateTokens(JSON.stringify(capped[i]!));
     if (cost > budget) break;
-    result.splice(1, 0, capped[i]!);
+    tail.unshift(capped[i]!);
     budget -= cost;
   }
 
-  return result;
+  return [first, ...tail];
 }
 
 async function callOpenAI(input: {

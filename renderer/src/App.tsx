@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useVoiceDictation } from "./hooks/useVoiceDictation";
 
 type TrackingEventRecord = {
@@ -185,7 +185,12 @@ export function App() {
     voiceSupported
   ]);
 
+  const isMounted = useRef(false);
   useEffect(() => {
+    if (!isMounted.current) {
+      isMounted.current = true;
+      return;
+    }
     if (isListening) {
       void window.flowos?.showWindow();
     } else {

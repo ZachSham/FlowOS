@@ -141,11 +141,10 @@ export function startContextTriggerService(
         return;
       }
 
+      lastTriggeredMode = mode;
       if (stopped) {
         return;
       }
-
-      lastTriggeredMode = mode;
       onTrigger(mode);
     } catch (err) {
       console.error("[contextTriggerService] local inference call failed:", err);
