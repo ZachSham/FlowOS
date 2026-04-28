@@ -1,9 +1,11 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { executeTranscript, shutdownExecutor } from "./executor.mjs";
+import { localDefaults } from "./local-config.mjs";
+import { transcribeWavFile } from "./local-stt.mjs";
 
 function hasCommand(command) {
   const result = spawnSync("bash", ["-lc", `command -v ${command}`], {
@@ -50,44 +52,8 @@ function chooseRecorder() {
 }
 
 async function transcribeAudio(audioPath) {
-  const apiKey = String(process.env.OPENAI_API_KEY ?? "").trim();
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not set.");
-  }
-
-  const model = String(process.env.VOICE_LAB_STT_MODEL ?? "whisper-1").trim();
-  const baseUrl = String(process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
-
-  const form = new FormData();
-  form.append("model", model);
-  form.append("file", new Blob([await readFile(audioPath)], { type: "audio/wav" }), "speech.wav");
-
-  const response = await fetch(`${baseUrl}/audio/transcriptions`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${apiKey}`
-    },
-    body: form
-  });
-
-  const responseText = await response.text();
-  let payload = {};
-
-  try {
-    payload = JSON.parse(responseText);
-  } catch {
-    payload = {};
-  }
-
-  if (!response.ok) {
-    throw new Error(`Transcription failed (${response.status}): ${responseText}`);
-  }
-
-  if (typeof payload.text !== "string" || !payload.text.trim()) {
-    throw new Error("Transcription response did not include text.");
-  }
-
-  return payload.text.trim();
+  const outputBase = `${audioPath}.transcript`;
+  return await transcribeWavFile(audioPath, outputBase);
 }
 
 function printHelp() {
@@ -96,10 +62,12 @@ function printHelp() {
   console.log('  node voice-lab/push-to-talk-cli.mjs --once "open vscode"');
   console.log("");
   console.log("Environment:");
-  console.log("  OPENAI_API_KEY=...                   required for speech transcription");
   console.log("  VOICE_LAB_LLM_ENABLED=1              optional LLM fallback parser");
-  console.log("  VOICE_LAB_LLM_MODEL=gpt-4.1-mini     optional parser model");
-  console.log("  VOICE_LAB_STT_MODEL=whisper-1        optional transcription model");
+  console.log(`  FLOWOS_INFERENCE_BASE_URL=${localDefaults.inferenceBaseUrl}`);
+  console.log(`  FLOWOS_INFERENCE_MODEL=${localDefaults.inferenceModel}`);
+  console.log("  FLOWOS_INFERENCE_STRICT_LOCAL=1");
+  console.log("  FLOWOS_WHISPER_BIN=/path/to/whisper-cli");
+  console.log("  FLOWOS_WHISPER_MODEL=/path/to/ggml-base.en.bin");
   console.log("  VOICE_LAB_RECORDER=ffmpeg|rec        optional recorder override");
   console.log("  VOICE_LAB_AVFOUNDATION_INPUT=:0      ffmpeg input device (macOS)");
 }

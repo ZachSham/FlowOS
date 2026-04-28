@@ -42,7 +42,7 @@ function makeSession(): TrackingSession {
   } as unknown as TrackingSession;
 }
 
-function mockGptTrigger(mode: "coding" | "research") {
+function mockTriggerResponse(mode: "coding" | "research") {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
@@ -52,20 +52,33 @@ function mockGptTrigger(mode: "coding" | "research") {
 }
 
 describe("contextTriggerService", () => {
+  const savedEnv = { ...process.env };
+
   beforeEach(() => {
     vi.useFakeTimers();
-    process.env["OPENAI_API_KEY"] = "test-key";
+    process.env["FLOWOS_INFERENCE_BASE_URL"] = "http://127.0.0.1:11434/v1";
+    process.env["FLOWOS_INFERENCE_MODEL"] = "qwen2.5:14b-instruct";
+    process.env["FLOWOS_INFERENCE_STRICT_LOCAL"] = "1";
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-    delete process.env["OPENAI_API_KEY"];
+
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) {
+        delete process.env[key];
+      }
+    }
+
+    for (const [key, value] of Object.entries(savedEnv)) {
+      process.env[key] = value;
+    }
   });
 
   it("calls onTrigger after 8s of sustained focus", async () => {
-    mockGptTrigger("coding");
+    mockTriggerResponse("coding");
     const bridge = makeBridge();
     const onTrigger = vi.fn();
     startContextTriggerService(bridge, makeSession(), () => "idle", onTrigger);
@@ -77,7 +90,7 @@ describe("contextTriggerService", () => {
   });
 
   it("resets debounce when a second app.activated fires before 8s", async () => {
-    mockGptTrigger("coding");
+    mockTriggerResponse("coding");
     const bridge = makeBridge();
     const onTrigger = vi.fn();
     startContextTriggerService(bridge, makeSession(), () => "idle", onTrigger);
@@ -94,7 +107,7 @@ describe("contextTriggerService", () => {
   });
 
   it("does not trigger when flowStatus is running", async () => {
-    mockGptTrigger("coding");
+    mockTriggerResponse("coding");
     const bridge = makeBridge();
     const onTrigger = vi.fn();
     startContextTriggerService(bridge, makeSession(), () => "running", onTrigger);
@@ -106,7 +119,7 @@ describe("contextTriggerService", () => {
   });
 
   it("does not trigger within 5 minutes of last trigger", async () => {
-    mockGptTrigger("coding");
+    mockTriggerResponse("coding");
     const bridge = makeBridge();
     const onTrigger = vi.fn();
     startContextTriggerService(bridge, makeSession(), () => "idle", onTrigger);
@@ -115,14 +128,14 @@ describe("contextTriggerService", () => {
     await vi.advanceTimersByTimeAsync(8000);
     expect(onTrigger).toHaveBeenCalledTimes(1);
 
-    mockGptTrigger("research");
+    mockTriggerResponse("research");
     bridge.fire(makeEvent("Chrome"));
     await vi.advanceTimersByTimeAsync(8000);
     expect(onTrigger).toHaveBeenCalledTimes(1);
   });
 
   it("does not trigger when mode matches last triggered mode", async () => {
-    mockGptTrigger("coding");
+    mockTriggerResponse("coding");
     const bridge = makeBridge();
     const onTrigger = vi.fn();
     startContextTriggerService(bridge, makeSession(), () => "idle", onTrigger);
@@ -138,7 +151,7 @@ describe("contextTriggerService", () => {
     expect(onTrigger).toHaveBeenCalledTimes(1);
   });
 
-  it("does not throw or call onTrigger when GPT call fails", async () => {
+  it("does not throw or call onTrigger when local inference call fails", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network error")));
     const bridge = makeBridge();
     const onTrigger = vi.fn();
@@ -151,7 +164,7 @@ describe("contextTriggerService", () => {
   });
 
   it("stop() clears pending debounce and no trigger fires", async () => {
-    mockGptTrigger("coding");
+    mockTriggerResponse("coding");
     const bridge = makeBridge();
     const onTrigger = vi.fn();
     const handle = startContextTriggerService(bridge, makeSession(), () => "idle", onTrigger);

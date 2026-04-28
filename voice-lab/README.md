@@ -11,7 +11,7 @@ This folder is independent from renderer/Electron UI wiring.
 - Captures voice with browser SpeechRecognition API (when available)
 - Lets you paste a transcript manually as fallback
 - Parses transcript into a command string (deterministic parser first)
-- Optional LLM fallback parser for broader natural language matching
+- Optional LLM fallback parser for broader natural language matching (local Ollama)
 - Executes against current Swift helper stdio protocol (`helper.ping`, `system.snapshot`, `window.*`, `app.activate`)
 - Shows full parse + execution JSON
 
@@ -56,14 +56,16 @@ Then open:
 Use **Start Listening** and speak. It executes automatically when listening ends.
 Use **Parse Transcript** only for parse-only preview.
 
-## Optional LLM Fallback Parsing
+## Optional Local LLM Fallback Parsing
 
 Enable this when you want more free-form phrases to map to existing commands:
 
 ```bash
 export VOICE_LAB_LLM_ENABLED=1
-export OPENAI_API_KEY="<your_api_key>"
-export VOICE_LAB_LLM_MODEL="gpt-4.1-mini"
+export FLOWOS_INFERENCE_PROVIDER=ollama
+export FLOWOS_INFERENCE_BASE_URL="http://127.0.0.1:11434/v1"
+export FLOWOS_INFERENCE_MODEL="qwen2.5:14b-instruct"
+export FLOWOS_INFERENCE_STRICT_LOCAL=1
 ```
 
 Then run the server/CLI as usual. Behavior:
@@ -71,6 +73,24 @@ Then run the server/CLI as usual. Behavior:
 - Rule parser runs first.
 - If rule parser cannot map command, LLM parser tries to map it to one of the supported command types.
 - LLM output is validated and compiled to known safe command strings only.
+
+## Local STT Requirements (push-to-talk)
+
+```bash
+brew install ffmpeg whisper-cpp
+ollama serve
+ollama pull qwen2.5:14b-instruct
+```
+
+Set local STT env vars:
+
+```bash
+export FLOWOS_WHISPER_BIN="/opt/homebrew/bin/whisper-cli"
+export FLOWOS_WHISPER_MODEL="/absolute/path/to/ggml-base.en.bin"
+export FLOWOS_WHISPER_THREADS=4
+export FLOWOS_WHISPER_LANGUAGE=en
+export FLOWOS_FFMPEG_BIN=ffmpeg
+```
 
 ## CLI Parse Only
 
@@ -136,7 +156,9 @@ Example: `ax:656:1`
 - `index.html`: standalone UI
 - `app.mjs`: browser voice + UI logic
 - `parser.mjs`: deterministic parser and command selection
-- `llm-parser.mjs`: optional OpenAI fallback parser (strictly validated)
+- `llm-parser.mjs`: optional local LLM fallback parser (strictly validated)
+- `local-config.mjs`: shared local inference/STT env resolution
+- `local-stt.mjs`: whisper.cpp CLI transcription helper
 - `helper-client.mjs`: stdio bridge client for FlowStateHelper
 - `executor.mjs`: transcript execution engine
 - `parse-cli.mjs`: parser tester

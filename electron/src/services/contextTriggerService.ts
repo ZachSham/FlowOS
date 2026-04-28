@@ -1,5 +1,9 @@
-import { net } from "electron";
 import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
+import {
+  resolveLocalInferenceConfig,
+  type LocalInferenceConfig
+} from "./localInferenceConfig.js";
+import { callLocalChatCompletion } from "./localInferenceClient.js";
 import type { TrackingSession } from "./trackingSession.js";
 
 export type TriggerCallback = (mode: "coding" | "research") => void;
@@ -17,68 +21,67 @@ interface GptTriggerResponse {
   reason: string;
 }
 
+function parseFirstJsonObject(raw: string): Record<string, unknown> {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error("Empty response from local inference.");
+  }
+
+  try {
+    return JSON.parse(trimmed) as Record<string, unknown>;
+  } catch {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
+    }
+
+    throw new Error(`Unparseable response: ${trimmed}`);
+  }
+}
+
 async function callGptForTrigger(
+  inferenceConfig: LocalInferenceConfig,
   trackingSession: TrackingSession,
   appName: string | null
 ): Promise<GptTriggerResponse> {
-  const apiKey = process.env["OPENAI_API_KEY"]?.trim();
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not set.");
-  }
-
-  const model = process.env["OPENAI_MODEL"]?.trim() ?? "gpt-4.1";
   const summary = trackingSession.getSummary();
 
   const prompt = [
     `The user has been focused on "${appName ?? "unknown"}" for 8 seconds.`,
     `Activity summary: ${JSON.stringify(summary)}.`,
-    `Should FlowOS automatically apply a layout? If yes, which mode: "coding" or "research"?`,
-    `Respond with JSON only in the form: {"trigger": true|false, "mode": "coding"|"research", "reason": "..."}`,
-    `Only set trigger:true if the context strongly suggests a focused work mode. If unsure, set trigger:false.`
+    "Should FlowOS automatically apply a layout? If yes, which mode: \"coding\" or \"research\"?",
+    "Respond with JSON only in the form: {\"trigger\": true|false, \"mode\": \"coding\"|\"research\", \"reason\": \"...\"}",
+    "Only set trigger:true if the context strongly suggests a focused work mode. If unsure, set trigger:false."
   ].join(" ");
 
-  const electronFetch = (net as unknown as { fetch?: typeof fetch } | undefined)?.fetch;
-  const activeFetch = electronFetch ?? fetch;
-
-  const response = await activeFetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0,
-      max_tokens: 100,
-      messages: [{ role: "user", content: prompt }]
-    })
+  const response = await callLocalChatCompletion(inferenceConfig, {
+    model: inferenceConfig.model,
+    temperature: 0,
+    max_tokens: 100,
+    messages: [{ role: "user", content: prompt }]
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
-  }
-
-  const data = (await response.json()) as {
-    choices: Array<{ message: { content: string | null } }>;
-  };
-
-  const content = data.choices[0]?.message?.content;
+  const content = response.choices[0]?.message?.content;
   if (!content) {
-    throw new Error("Empty response from OpenAI");
+    throw new Error("Empty response from local inference.");
   }
 
-  const parsed = JSON.parse(content) as GptTriggerResponse;
+  const parsed = parseFirstJsonObject(content);
 
   if (typeof parsed.trigger !== "boolean") {
     throw new Error(`Invalid trigger field: expected boolean, got ${typeof parsed.trigger}`);
   }
 
   if (parsed.mode !== "coding" && parsed.mode !== "research") {
-    throw new Error(`Invalid mode from GPT: ${String(parsed.mode)}`);
+    throw new Error(`Invalid mode from local inference: ${String(parsed.mode)}`);
   }
 
-  return parsed;
+  return {
+    trigger: parsed.trigger,
+    mode: parsed.mode,
+    reason: typeof parsed.reason === "string" ? parsed.reason : ""
+  };
 }
 
 export function startContextTriggerService(
@@ -87,6 +90,9 @@ export function startContextTriggerService(
   getFlowStatus: () => "idle" | "running" | "completed" | "failed",
   onTrigger: TriggerCallback
 ): ContextTriggerHandle {
+  const inferenceConfigResult = resolveLocalInferenceConfig();
+  const inferenceConfig = inferenceConfigResult.ok ? inferenceConfigResult.value : null;
+
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   let lastTriggerAt: number | null = null;
   let lastTriggeredMode: "coding" | "research" | null = null;
@@ -97,6 +103,13 @@ export function startContextTriggerService(
     debounceTimer = null;
 
     if (stopped) {
+      return;
+    }
+
+    if (!inferenceConfig) {
+      console.error(
+        `[contextTriggerService] disabled: ${inferenceConfigResult.ok ? "unknown config error" : inferenceConfigResult.error}`
+      );
       return;
     }
 
@@ -111,10 +124,10 @@ export function startContextTriggerService(
     }
 
     try {
-      const result = await callGptForTrigger(trackingSession, previousApp);
+      const result = await callGptForTrigger(inferenceConfig, trackingSession, previousApp);
 
-      // Update rate-limit timestamp after every successful GPT call, regardless
-      // of whether it fires a trigger, so cost is bounded to one call per 5 min.
+      // Update rate-limit timestamp after every successful inference call, regardless
+      // of whether it fires a trigger, so local model calls are bounded.
       lastTriggerAt = Date.now();
 
       if (!result.trigger) {
@@ -123,7 +136,7 @@ export function startContextTriggerService(
 
       const mode = result.mode;
 
-      // Dedup: skip if GPT returns same mode as last triggered mode
+      // Dedup: skip if model returns same mode as last triggered mode
       if (mode === lastTriggeredMode) {
         return;
       }
@@ -135,7 +148,7 @@ export function startContextTriggerService(
       lastTriggeredMode = mode;
       onTrigger(mode);
     } catch (err) {
-      console.error("[contextTriggerService] GPT call failed:", err);
+      console.error("[contextTriggerService] local inference call failed:", err);
     }
   }
 

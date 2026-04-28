@@ -1,4 +1,5 @@
 import { parseVoiceTranscript } from "./parser.mjs";
+import { resolveLocalInferenceConfig } from "./local-config.mjs";
 
 const KNOWN_APPS = [
   {
@@ -411,24 +412,24 @@ function parseFirstJsonObject(raw) {
 }
 
 async function requestLlmCandidate(rawTranscript, normalizedTranscript) {
-  const apiKey = String(process.env.OPENAI_API_KEY ?? "").trim();
-  if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is not set.");
+  const resolved = resolveLocalInferenceConfig();
+  if (!resolved.ok) {
+    throw new Error(resolved.error);
   }
 
-  const model = String(process.env.VOICE_LAB_LLM_MODEL ?? "gpt-4.1-mini").trim();
-  const baseUrl = String(process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
-  const timeoutMs = Number(process.env.VOICE_LAB_LLM_TIMEOUT_MS ?? "8000");
+  const model = resolved.value.model;
+  const baseUrl = resolved.value.baseUrl;
+  const timeoutMs = resolved.value.timeoutMs;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Number.isFinite(timeoutMs) ? timeoutMs : 8000);
+  const timer = setTimeout(() => controller.abort(), Number.isFinite(timeoutMs) ? timeoutMs : 12000);
 
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${apiKey}`,
-        "content-type": "application/json"
+        "content-type": "application/json",
+        ...(resolved.value.apiKey ? { authorization: `Bearer ${resolved.value.apiKey}` } : {})
       },
       body: JSON.stringify({
         model,

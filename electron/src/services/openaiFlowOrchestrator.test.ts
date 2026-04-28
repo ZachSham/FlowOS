@@ -27,7 +27,7 @@ function makeMockSession(): TrackingSession {
   } as unknown as TrackingSession;
 }
 
-function openAITextResponse(text: string) {
+function localTextResponse(text: string) {
   return {
     ok: true,
     json: async () => ({
@@ -36,7 +36,7 @@ function openAITextResponse(text: string) {
   };
 }
 
-function openAIToolResponse(toolName: string, toolId: string, args: Record<string, unknown>) {
+function localToolResponse(toolName: string, toolId: string, args: Record<string, unknown>) {
   return {
     ok: true,
     json: async () => ({
@@ -77,31 +77,42 @@ describe("buildVoicePrompt", () => {
 });
 
 describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
-  const savedKey = process.env["OPENAI_API_KEY"];
+  const savedEnv = { ...process.env };
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    process.env["FLOWOS_INFERENCE_BASE_URL"] = "http://127.0.0.1:11434/v1";
+    process.env["FLOWOS_INFERENCE_MODEL"] = "qwen2.5:14b-instruct";
+    process.env["FLOWOS_INFERENCE_STRICT_LOCAL"] = "1";
+    delete process.env["FLOWOS_INFERENCE_API_KEY"];
   });
 
   afterEach(() => {
-    if (savedKey === undefined) delete process.env["OPENAI_API_KEY"];
-    else process.env["OPENAI_API_KEY"] = savedKey;
+    vi.unstubAllGlobals();
+    for (const key of Object.keys(process.env)) {
+      if (!(key in savedEnv)) {
+        delete process.env[key];
+      }
+    }
+
+    for (const [key, value] of Object.entries(savedEnv)) {
+      process.env[key] = value;
+    }
   });
 
-  it("returns ok:false when OPENAI_API_KEY is missing", async () => {
-    delete process.env["OPENAI_API_KEY"];
+  it("returns ok:false when strict local mode is disabled", async () => {
+    process.env["FLOWOS_INFERENCE_STRICT_LOCAL"] = "0";
     const orchestrator = new OpenAIFlowOrchestrator({
       bridge: makeMockBridge(),
       trackingSession: makeMockSession()
     });
     const result = await orchestrator.runVoiceCommand("open vscode");
     expect(result.ok).toBe(false);
-    expect(result.summary).toContain("OPENAI_API_KEY");
+    expect(result.summary).toContain("FLOWOS_INFERENCE_STRICT_LOCAL");
   });
 
   it("sends the transcript in the user message", async () => {
-    process.env["OPENAI_API_KEY"] = "test-key";
-    const mockFetch = vi.fn().mockResolvedValue(openAITextResponse("Done."));
+    const mockFetch = vi.fn().mockResolvedValue(localTextResponse("Done."));
     vi.stubGlobal("fetch", mockFetch);
 
     const orchestrator = new OpenAIFlowOrchestrator({
@@ -117,9 +128,8 @@ describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
     expect(userMsg?.content).toContain("focus on terminal");
   });
 
-  it("calls the OpenAI endpoint", async () => {
-    process.env["OPENAI_API_KEY"] = "test-key";
-    const mockFetch = vi.fn().mockResolvedValue(openAITextResponse("Done."));
+  it("calls the local inference endpoint", async () => {
+    const mockFetch = vi.fn().mockResolvedValue(localTextResponse("Done."));
     vi.stubGlobal("fetch", mockFetch);
 
     const orchestrator = new OpenAIFlowOrchestrator({
@@ -129,12 +139,23 @@ describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
     await orchestrator.runVoiceCommand("open vscode");
 
     const [url] = mockFetch.mock.calls[0] as [string];
-    expect(url).toContain("openai.com");
+    expect(url).toBe("http://127.0.0.1:11434/v1/chat/completions");
   });
 
-  it("returns ok:true with the model's text as summary", async () => {
-    process.env["OPENAI_API_KEY"] = "test-key";
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(openAITextResponse("Focused Terminal.")));
+  it("returns ok:false with clear summary when local inference is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED")));
+
+    const orchestrator = new OpenAIFlowOrchestrator({
+      bridge: makeMockBridge(),
+      trackingSession: makeMockSession()
+    });
+    const result = await orchestrator.runVoiceCommand("focus on terminal");
+    expect(result.ok).toBe(false);
+    expect(result.summary).toContain("Local inference unavailable");
+  });
+
+  it("returns ok:true with the model text as summary", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(localTextResponse("Focused Terminal.")));
 
     const orchestrator = new OpenAIFlowOrchestrator({
       bridge: makeMockBridge(),
@@ -146,13 +167,12 @@ describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
   });
 
   it("populates toolCalls when the model uses a tool", async () => {
-    process.env["OPENAI_API_KEY"] = "test-key";
     let callCount = 0;
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
       callCount += 1;
       return callCount === 1
-        ? openAIToolResponse("activate_app", "t1", { bundleId: "com.apple.Terminal" })
-        : openAITextResponse("Activated Terminal.");
+        ? localToolResponse("activate_app", "t1", { bundleId: "com.apple.Terminal" })
+        : localTextResponse("Activated Terminal.");
     }));
 
     const orchestrator = new OpenAIFlowOrchestrator({
@@ -165,19 +185,18 @@ describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
   });
 
   it("executes split_two_windows without taking another snapshot", async () => {
-    process.env["OPENAI_API_KEY"] = "test-key";
     let callCount = 0;
     vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => {
       callCount += 1;
       return callCount === 1
-        ? openAIToolResponse("split_two_windows", "t1", {
+        ? localToolResponse("split_two_windows", "t1", {
             display: { id: "display-1", x: 0, y: 0, width: 1200, height: 800 },
             windowIds: ["ax:1:0", "ax:2:0"],
             gap: 8,
             margin: 12,
             clearFullscreen: false
           })
-        : openAITextResponse("Split the windows.");
+        : localTextResponse("Split the windows.");
     }));
     const bridge = makeMockBridge();
 

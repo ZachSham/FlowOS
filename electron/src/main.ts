@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, net, globalShortcut, screen } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, globalShortcut, screen } from "electron";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -35,6 +35,8 @@ import {
   startContextTriggerService,
   type ContextTriggerHandle
 } from "./services/contextTriggerService.js";
+import { localInferenceDefaults } from "./services/localInferenceConfig.js";
+import { transcribeWebmAudio } from "./services/localStt.js";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 loadDotEnv(repoRoot);
@@ -150,7 +152,7 @@ async function bootstrap() {
       lastFlowRun = {
         ok: false,
         summary: message,
-        model: process.env.OPENAI_MODEL ?? null,
+        model: process.env["FLOWOS_INFERENCE_MODEL"]?.trim() || localInferenceDefaults.model,
         snapshotTimestamp: null,
         toolCalls: [],
         toolResults: []
@@ -231,34 +233,7 @@ async function bootstrap() {
   });
 
   ipcMain.handle(ipcChannels.transcribeAudio, async (_event, audioData: Uint8Array) => {
-    const apiKey = process.env["OPENAI_API_KEY"]?.trim();
-    if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
-
-    const form = new FormData();
-    const audioBuffer = audioData.buffer.slice(
-      audioData.byteOffset,
-      audioData.byteOffset + audioData.byteLength
-    ) as ArrayBuffer;
-    form.append("model", "whisper-1");
-    form.append(
-      "file",
-      new Blob([audioBuffer], { type: "audio/webm" }),
-      "recording.webm"
-    );
-
-    const response = await net.fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: { authorization: `Bearer ${apiKey}` },
-      body: form
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Whisper error ${response.status}: ${text}`);
-    }
-
-    const data = await response.json() as { text: string };
-    return data.text.trim();
+    return await transcribeWebmAudio(audioData);
   });
 
   ipcMain.handle(ipcChannels.runChromeCommand, async (_event, request: ChromeCommandInvocation) => {

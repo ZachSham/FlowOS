@@ -6,10 +6,17 @@ import type {
   NativeActionResult,
   SystemSnapshot
 } from "@flowos/shared";
-import { net } from "electron";
 import { applySplitLayout } from "../actions/splitLayout.js";
 import { createWindowEditor } from "../actions/windowEditor.js";
 import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
+import {
+  resolveLocalInferenceConfig,
+  type LocalInferenceConfig
+} from "./localInferenceConfig.js";
+import {
+  callLocalChatCompletion,
+  type LocalInferenceMessage
+} from "./localInferenceClient.js";
 import type { TrackingSession } from "./trackingSession.js";
 
 type RunChromeCommand = <C extends ChromeCommand>(
@@ -401,23 +408,33 @@ export class OpenAIFlowOrchestrator {
       };
     }
 
-    const { apiKey, model, error } = resolveOpenAIConfig();
+    const { config, error } = resolvePlannerConfig();
     if (error) {
       return { ok: false, summary: error, model: null, snapshotTimestamp: null, toolCalls: [], toolResults: [] };
     }
 
     const initialSystemSnapshot = await this.safeSystemSnapshot();
     const initialChromeSnapshot = this.safeChromeSnapshot();
-    return this.runLoop({
-      apiKey: apiKey!,
-      model: model!,
-      initialPrompt: buildFlowModePrompt(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot),
-      emptySummary: `Flow mode (${mode}) finished without a final summary.`
-    });
+    try {
+      return await this.runLoop({
+        inferenceConfig: config!,
+        initialPrompt: buildFlowModePrompt(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot),
+        emptySummary: `Flow mode (${mode}) finished without a final summary.`
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        summary: `Local inference unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        model: config?.model ?? null,
+        snapshotTimestamp: null,
+        toolCalls: [],
+        toolResults: []
+      };
+    }
   }
 
   async runVoiceCommand(transcript: string): Promise<FlowRunResult> {
-    const { apiKey, model, error } = resolveOpenAIConfig();
+    const { config, error } = resolvePlannerConfig();
     if (error) {
       return { ok: false, summary: error, model: null, snapshotTimestamp: null, toolCalls: [], toolResults: [] };
     }
@@ -425,17 +442,27 @@ export class OpenAIFlowOrchestrator {
     const trackingSummary = this.trackingSession.getSummary();
     const initialSystemSnapshot = await this.safeSystemSnapshot();
     const initialChromeSnapshot = this.safeChromeSnapshot();
-    return this.runLoop({
-      apiKey: apiKey!,
-      model: model!,
-      initialPrompt: buildVoicePrompt(
-        transcript,
-        initialSystemSnapshot,
-        initialChromeSnapshot,
-        trackingSummary
-      ),
-      emptySummary: "Voice command finished without a summary."
-    });
+    try {
+      return await this.runLoop({
+        inferenceConfig: config!,
+        initialPrompt: buildVoicePrompt(
+          transcript,
+          initialSystemSnapshot,
+          initialChromeSnapshot,
+          trackingSummary
+        ),
+        emptySummary: "Voice command finished without a summary."
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        summary: `Local inference unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        model: config?.model ?? null,
+        snapshotTimestamp: null,
+        toolCalls: [],
+        toolResults: []
+      };
+    }
   }
 
   private async safeSystemSnapshot(): Promise<SystemSnapshot | null> {
@@ -455,8 +482,7 @@ export class OpenAIFlowOrchestrator {
   }
 
   private async runLoop(input: {
-    apiKey: string;
-    model: string;
+    inferenceConfig: LocalInferenceConfig;
     initialPrompt: string;
     emptySummary: string;
   }): Promise<FlowRunResult> {
@@ -470,7 +496,11 @@ export class OpenAIFlowOrchestrator {
     let finalSummary = input.emptySummary;
 
     for (let iteration = 0; iteration < 20; iteration += 1) {
-      const response = await callOpenAI({ apiKey: input.apiKey, model: input.model, messages });
+      const response = await callOpenAI({
+        inferenceConfig: input.inferenceConfig,
+        model: input.inferenceConfig.model,
+        messages
+      });
 
       messages.push({
         role: "assistant",
@@ -507,7 +537,14 @@ export class OpenAIFlowOrchestrator {
       messages.push({ role: "user", content: toolResultBlocks });
     }
 
-    return { ok: true, summary: finalSummary, model: input.model, snapshotTimestamp, toolCalls, toolResults };
+    return {
+      ok: true,
+      summary: finalSummary,
+      model: input.inferenceConfig.model,
+      snapshotTimestamp,
+      toolCalls,
+      toolResults
+    };
   }
 
   private async executeTool(name: string, input: Record<string, unknown>) {
@@ -613,11 +650,20 @@ export class OpenAIFlowOrchestrator {
   }
 }
 
-function resolveOpenAIConfig(): { apiKey?: string; model?: string; error?: string } {
-  const apiKey = process.env["OPENAI_API_KEY"]?.trim();
-  if (!apiKey) return { error: "OPENAI_API_KEY is not set." };
-  const model = process.env["OPENAI_MODEL"]?.trim() || "gpt-4.1-mini";
-  return { apiKey, model };
+function resolvePlannerConfig(): { config?: LocalInferenceConfig; error?: string } {
+  const resolved = resolveLocalInferenceConfig();
+  if (!resolved.ok) {
+    return { error: resolved.error };
+  }
+
+  if (!resolved.value.strictLocal) {
+    return {
+      error:
+        "FLOWOS_INFERENCE_STRICT_LOCAL must be enabled for this build. Set FLOWOS_INFERENCE_STRICT_LOCAL=1."
+    };
+  }
+
+  return { config: resolved.value };
 }
 
 const DISPLAY_GEOMETRY_RULES =
@@ -728,8 +774,8 @@ function buildFlowModePrompt(
   return [...base, ...modeSpecific].join(" ");
 }
 
-function toOpenAIMessages(messages: InternalMessage[]): Array<Record<string, unknown>> {
-  const result: Array<Record<string, unknown>> = [];
+function toOpenAIMessages(messages: InternalMessage[]): LocalInferenceMessage[] {
+  const result: LocalInferenceMessage[] = [];
 
   for (const msg of messages) {
     if (msg.role === "user") {
@@ -805,33 +851,80 @@ function normalizeOpenAIResponse(data: OpenAIResponse): LLMResponse {
   };
 }
 
+const TOKEN_BUDGET = 4_000;
+const MAX_OUTPUT_TOKENS = 512;
+const MAX_INPUT_TOKENS = TOKEN_BUDGET - MAX_OUTPUT_TOKENS;
+const CHARS_PER_TOKEN = 4;
+const MAX_TOOL_RESULT_CHARS = 1_200;
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN);
+}
+
+function trimToBudget(messages: LocalInferenceMessage[]): LocalInferenceMessage[] {
+  const fixedTokens =
+    estimateTokens(SYSTEM_PROMPT) + estimateTokens(JSON.stringify(TOOL_DEFINITIONS));
+  let budget = MAX_INPUT_TOKENS - fixedTokens;
+
+  // Truncate oversized tool result payloads first
+  const capped = messages.map((msg) => {
+    if (
+      msg.role === "tool" &&
+      typeof msg.content === "string" &&
+      msg.content.length > MAX_TOOL_RESULT_CHARS
+    ) {
+      return { ...msg, content: msg.content.slice(0, MAX_TOOL_RESULT_CHARS) + "…[trimmed]" };
+    }
+    return msg;
+  });
+
+  if (capped.length === 0) return capped;
+
+  // Always keep the first message (the initial task prompt)
+  const first = capped[0]!;
+  const firstCost = estimateTokens(JSON.stringify(first));
+
+  if (firstCost >= budget) {
+    if (first.role === "user" && typeof first.content === "string") {
+      const maxChars = Math.max(0, budget) * CHARS_PER_TOKEN;
+      return [{ ...first, content: first.content.slice(0, maxChars) + "…[trimmed]" }];
+    }
+    return [first];
+  }
+
+  budget -= firstCost;
+
+  // Fill remaining budget with the most recent messages
+  const result: LocalInferenceMessage[] = [first];
+  for (let i = capped.length - 1; i >= 1; i--) {
+    const cost = estimateTokens(JSON.stringify(capped[i]!));
+    if (cost > budget) break;
+    result.splice(1, 0, capped[i]!);
+    budget -= cost;
+  }
+
+  return result;
+}
+
 async function callOpenAI(input: {
-  apiKey: string;
+  inferenceConfig: LocalInferenceConfig;
   model: string;
   messages: InternalMessage[];
 }): Promise<LLMResponse> {
-  const electronFetch = (net as unknown as { fetch?: typeof fetch } | undefined)?.fetch;
-  const activeFetch = electronFetch ?? fetch;
+  const allMessages = toOpenAIMessages(input.messages);
+  const budgeted = trimToBudget([
+    { role: "system", content: SYSTEM_PROMPT },
+    ...allMessages
+  ]);
 
-  const response = await activeFetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${input.apiKey}`
-    },
-    body: JSON.stringify({
-      model: input.model,
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, ...toOpenAIMessages(input.messages)],
-      tools: TOOL_DEFINITIONS
-    })
+  const response = await callLocalChatCompletion(input.inferenceConfig, {
+    model: input.model,
+    messages: budgeted,
+    tools: TOOL_DEFINITIONS,
+    max_tokens: MAX_OUTPUT_TOKENS
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI API error ${response.status}: ${errorText}`);
-  }
-
-  return normalizeOpenAIResponse((await response.json()) as OpenAIResponse);
+  return normalizeOpenAIResponse(response as OpenAIResponse);
 }
 
 function readString(value: unknown, label: string) {
