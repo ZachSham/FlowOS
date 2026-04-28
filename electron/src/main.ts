@@ -106,7 +106,8 @@ async function bootstrap() {
     bridge: nativeHelperBridge,
     trackingSession,
     getChromeSnapshot: () => latestChromeSnapshot,
-    runChromeCommand
+    runChromeCommand,
+    getMemory: () => persistentMemoryStore?.getSnapshot().recentEntries ?? []
   });
 
   const runEnterFlowMode = async (mode: FlowMode) => {
@@ -118,17 +119,16 @@ async function bootstrap() {
       const result = await flowOrchestrator.enterFlowMode(mode);
       lastFlowRun = result;
       flowModeStatus = result.ok ? "completed" : "failed";
-      appendMemoryEntry(
-        result.ok ? "flow.mode.completed" : "flow.mode.failed",
-        result.summary,
-        {
-          mode,
-          model: result.model,
-          snapshotTimestamp: result.snapshotTimestamp,
-          toolCalls: result.toolCalls,
-          toolResults: result.toolResults
-        }
-      );
+      if (result.ok) {
+        const appsActedOn = [...new Set(result.toolCalls.map((t) => t.input["bundleId"] ?? t.input["windowId"]).filter(Boolean))];
+        appendMemoryEntry(
+          "flow.mode.completed",
+          `${mode} mode: ${result.summary}`,
+          { mode, model: result.model, appsActedOn, toolCallCount: result.toolCalls.length }
+        );
+      } else {
+        appendMemoryEntry("flow.mode.failed", result.summary, { mode });
+      }
       if (result.errorCode === "tracking-required") {
         void dialog.showMessageBox({
           type: "warning",
@@ -468,11 +468,6 @@ async function runChromeCommand<C extends ChromeCommand>(
       throw new Error(`Unsupported chrome command: ${String(command)}`);
   }
 
-  appendMemoryEntry("chrome.command.executed", `Executed ${String(command)}.`, {
-    command,
-    payload,
-    result
-  });
   return result;
 }
 

@@ -19,11 +19,18 @@ type RunChromeCommand = <C extends ChromeCommand>(
 
 export type FlowMode = "coding" | "research" | "auto";
 
+export interface MemoryEntry {
+  timestamp: string;
+  title: string;
+  summary?: string;
+}
+
 interface FlowOrchestratorOptions {
   bridge: NativeHelperBridge;
   trackingSession: TrackingSession;
   getChromeSnapshot?: () => ChromeSnapshot | null;
   runChromeCommand?: RunChromeCommand;
+  getMemory?: () => MemoryEntry[];
 }
 
 interface FlowToolUse {
@@ -377,12 +384,14 @@ export class OpenAIFlowOrchestrator {
   private readonly trackingSession: TrackingSession;
   private readonly getChromeSnapshot?: () => ChromeSnapshot | null;
   private readonly runChromeCommand?: RunChromeCommand;
+  private readonly getMemory?: () => MemoryEntry[];
 
   constructor(options: FlowOrchestratorOptions) {
     this.bridge = options.bridge;
     this.trackingSession = options.trackingSession;
     this.getChromeSnapshot = options.getChromeSnapshot;
     this.runChromeCommand = options.runChromeCommand;
+    this.getMemory = options.getMemory;
   }
 
   async enterFlowMode(mode: FlowMode): Promise<FlowRunResult> {
@@ -408,10 +417,11 @@ export class OpenAIFlowOrchestrator {
 
     const initialSystemSnapshot = await this.safeSystemSnapshot();
     const initialChromeSnapshot = this.safeChromeSnapshot();
+    const memoryEntries = this.getMemory?.() ?? [];
     return this.runLoop({
       apiKey: apiKey!,
       model: model!,
-      initialPrompt: buildFlowModePrompt(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot),
+      initialPrompt: buildFlowModePrompt(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot, memoryEntries),
       emptySummary: `Flow mode (${mode}) finished without a final summary.`
     });
   }
@@ -425,6 +435,7 @@ export class OpenAIFlowOrchestrator {
     const trackingSummary = this.trackingSession.getSummary();
     const initialSystemSnapshot = await this.safeSystemSnapshot();
     const initialChromeSnapshot = this.safeChromeSnapshot();
+    const memoryEntries = this.getMemory?.() ?? [];
     return this.runLoop({
       apiKey: apiKey!,
       model: model!,
@@ -432,7 +443,8 @@ export class OpenAIFlowOrchestrator {
         transcript,
         initialSystemSnapshot,
         initialChromeSnapshot,
-        trackingSummary
+        trackingSummary,
+        memoryEntries
       ),
       emptySummary: "Voice command finished without a summary."
     });
@@ -627,14 +639,26 @@ const DISPLAY_GEOMETRY_RULES =
   "State tracking: the initial snapshot ages the moment you call any move/resize/focus/hide tool. Either keep an internal map of the windowId -> latest {x, y, width, height} you set so subsequent decisions use post-action positions, OR call get_system_snapshot to refresh - and definitely refresh every ~5 mutating tool calls, before any verification step, and after any display add/remove in tracking. Never base a new placement on the stale initial snapshot once you have started moving things. " +
   "Before any split / tile / multi-window arrangement, confirm the windowIds and target display rect are still current; if anything has been moved, resized, opened, or closed since the latest snapshot, call get_system_snapshot first so the placement is accurate.";
 
+function buildMemoryContext(entries: MemoryEntry[]): string {
+  const relevant = entries
+    .filter((e) => e.title === "flow.mode.completed" || e.title === "voice.command.completed")
+    .slice(0, 5);
+  if (relevant.length === 0) return "";
+  const lines = relevant.map((e) => `- [${e.timestamp}] ${e.summary ?? "(no summary)"}`);
+  return `Recent successful actions (use these to infer user preferences and repeat what worked):\n${lines.join("\n")}`;
+}
+
 export function buildVoicePrompt(
   transcript: string,
   initialSystemSnapshot: SystemSnapshot | null = null,
   initialChromeSnapshot: ChromeSnapshot | null = null,
-  trackingSummary: ReturnType<TrackingSession["getSummary"]> | null = null
+  trackingSummary: ReturnType<TrackingSession["getSummary"]> | null = null,
+  memoryEntries: MemoryEntry[] = []
 ): string {
+  const memoryContext = buildMemoryContext(memoryEntries);
   return [
     `The user said: "${transcript}".`,
+    ...(memoryContext ? [memoryContext] : []),
     "You are controlling the user's Mac through explicit tools only.",
     `Initial system snapshot context: ${JSON.stringify(initialSystemSnapshot)}.`,
     `Initial Chrome snapshot context: ${JSON.stringify(initialChromeSnapshot)}.`,
@@ -716,7 +740,8 @@ function buildFlowModePrompt(
   mode: FlowMode,
   trackingSummary: ReturnType<TrackingSession["getSummary"]>,
   initialSystemSnapshot: SystemSnapshot | null,
-  initialChromeSnapshot: ChromeSnapshot | null
+  initialChromeSnapshot: ChromeSnapshot | null,
+  memoryEntries: MemoryEntry[] = []
 ) {
   const base = flowModeBaseInstructions(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot);
   const modeSpecific =
@@ -725,7 +750,11 @@ function buildFlowModePrompt(
       : mode === "research"
         ? RESEARCH_MODE_INSTRUCTIONS
         : AUTO_MODE_INSTRUCTIONS;
-  return [...base, ...modeSpecific].join(" ");
+  const memoryContext = buildMemoryContext(memoryEntries);
+  const memoryInstructions = memoryContext
+    ? [memoryContext, "Use the above history to replicate successful layouts and prefer the same apps."]
+    : [];
+  return [...base, ...memoryInstructions, ...modeSpecific].join(" ");
 }
 
 function toOpenAIMessages(messages: InternalMessage[]): Array<Record<string, unknown>> {
