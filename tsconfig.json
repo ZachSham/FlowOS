@@ -1,6 +1,7 @@
 {
   "files": [],
   "references": [
+    { "path": "./db" },
     { "path": "./shared" },
     { "path": "./electron" },
     { "path": "./renderer" }

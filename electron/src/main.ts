@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, net, globalShortcut, screen } from "electron";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ensureDatabase } from "@flowos/db";
 import {
   demoSuggestions,
   demoTaskState,
@@ -54,11 +55,15 @@ let swiftHelperStatus: SwiftHelperStatus = {
   command: []
 };
 const trackingSession = new TrackingSession();
+let db: ReturnType<typeof ensureDatabase> | null = null;
 let lastFlowRun: FlowRunResult | null = null;
 let flowModeStatus: "idle" | "running" | "completed" | "failed" = "idle";
 const GLOBAL_MIC_SHORTCUT = "CommandOrControl+Shift+K";
 
 async function bootstrap() {
+  const dbPath = process.env.FLOWOS_DB_PATH?.trim() || join(app.getPath("userData"), "flowos.db");
+  db = ensureDatabase(dbPath);
+
   const authToken = process.env.FLOWOS_EXTENSION_TOKEN?.trim();
   const memoryFilePath =
     process.env.FLOWOS_MEMORY_PATH?.trim() || join(app.getPath("desktop"), "flowos-memory.md");
@@ -416,6 +421,7 @@ app.on("before-quit", () => {
   nativeHelperTelemetry?.stop();
   nativeHelperBridge?.stop();
   observationService?.stop();
+  db?.close();
 });
 
 type ChromeCommandInvocation<C extends ChromeCommand = ChromeCommand> = {

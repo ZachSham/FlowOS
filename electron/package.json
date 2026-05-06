@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@flowos/db": "*",
     "@flowos/shared": "*",
     "ws": "^8.18.2"
   },

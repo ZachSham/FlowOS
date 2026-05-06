@@ -6,12 +6,7 @@
     "moduleResolution": "NodeNext",
     "declaration": true,
     "outDir": "dist",
-    "rootDir": "src",
-    "types": ["node", "electron"]
+    "rootDir": "src"
   },
-  "include": ["src/**/*.ts", "src/**/*.cts", "../types/**/*.d.ts"],
-  "references": [
-    { "path": "../db" },
-    { "path": "../shared" }
-  ]
+  "include": ["src/**/*.ts", "../types/**/*.d.ts"]
 }
