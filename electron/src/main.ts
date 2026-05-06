@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, nativeImage, net, glob
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureDatabase } from "@flowos/db";
+import { startSession, endSession } from "./services/sessionStore.js";
 import {
   demoSuggestions,
   demoTaskState,
@@ -56,6 +57,7 @@ let swiftHelperStatus: SwiftHelperStatus = {
 };
 const trackingSession = new TrackingSession();
 let db: ReturnType<typeof ensureDatabase> | null = null;
+let activeSessionId: string | null = null;
 let lastFlowRun: FlowRunResult | null = null;
 let flowModeStatus: "idle" | "running" | "completed" | "failed" = "idle";
 const GLOBAL_MIC_SHORTCUT = "CommandOrControl+Shift+K";
@@ -165,6 +167,9 @@ async function bootstrap() {
 
   const startTracking = () => {
     const tracking = trackingSession.start();
+    if (db && !activeSessionId) {
+      activeSessionId = startSession(db, "general");
+    }
     refreshMenuBar();
     return tracking;
   };
@@ -203,6 +208,10 @@ async function bootstrap() {
 
   ipcMain.handle(ipcChannels.stopTracking, () => {
     const result = trackingSession.stop();
+    if (db && activeSessionId) {
+      endSession(db, activeSessionId);
+      activeSessionId = null;
+    }
     refreshMenuBar();
     return result;
   });
