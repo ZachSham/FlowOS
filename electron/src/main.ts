@@ -381,12 +381,9 @@ async function bootstrap() {
       menuBarTray.on("click", (_event, bounds) => {
         togglePopover(bounds);
       });
-      menuBarTray.on("right-click", () => {
-        menuBarTray?.popUpContextMenu(
-          Menu.buildFromTemplate([{ label: "Quit FlowOS", click: () => app.quit() }])
-        );
-      });
     }
+
+    menuBarTray.setContextMenu(buildMenuBarMenu());
   }
 
   refreshMenuBar();
