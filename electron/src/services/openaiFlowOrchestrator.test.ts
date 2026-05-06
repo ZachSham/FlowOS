@@ -209,3 +209,21 @@ describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
     ).toHaveLength(1);
   });
 });
+
+describe("TrackingSession.stop", () => {
+  it("sets isTracking to false", async () => {
+    const { TrackingSession } = await import("./trackingSession.js");
+    const session = new TrackingSession();
+    session.start();
+    expect(session.getState().isTracking).toBe(true);
+    session.stop();
+    expect(session.getState().isTracking).toBe(false);
+  });
+
+  it("stop() is idempotent when not tracking", async () => {
+    const { TrackingSession } = await import("./trackingSession.js");
+    const session = new TrackingSession();
+    expect(() => session.stop()).not.toThrow();
+    expect(session.getState().isTracking).toBe(false);
+  });
+});

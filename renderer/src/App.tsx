@@ -50,6 +50,7 @@ declare global {
     flowos?: {
       getBootstrapState: () => Promise<BootstrapState>;
       startTracking: () => Promise<TrackingState>;
+      stopTracking: () => Promise<TrackingState>;
       enterFlowMode: (mode: "coding" | "research" | "auto") => Promise<FlowRunResult>;
       onTrayAction: (listener: (action: "toggle-mic") => void) => () => void;
       runVoiceCommand: (transcript: string) => Promise<FlowRunResult>;
@@ -122,6 +123,26 @@ export function App() {
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
       setStatusMessage("Tracking failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleStopTracking() {
+    if (!window.flowos) {
+      setErrorMessage("Electron preload bridge is unavailable in this window.");
+      return;
+    }
+    setIsSubmitting(true);
+    setErrorMessage(null);
+    setStatusMessage("Stopping tracking...");
+    try {
+      const tracking = await window.flowos.stopTracking();
+      setBootstrap((current) => ({ ...current, tracking }));
+      setStatusMessage("Tracking stopped.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+      setStatusMessage("Stop tracking failed.");
     } finally {
       setIsSubmitting(false);
     }
@@ -362,12 +383,14 @@ export function App() {
         </button>
         <button
           type="button"
-          onClick={() => void handleStartTracking()}
-          disabled={isSubmitting || bootstrap.tracking.isTracking}
+          onClick={() => void (bootstrap.tracking.isTracking ? handleStopTracking() : handleStartTracking())}
+          disabled={isSubmitting}
           className="mt-1.5 flex w-full items-center justify-between rounded-xl bg-white/[0.05] px-3 py-2.5 text-left ring-1 ring-white/[0.08] transition-all hover:bg-white/[0.08] hover:ring-white/[0.12] disabled:cursor-not-allowed disabled:opacity-40"
         >
           <div>
-            <div className="text-[13px] font-medium">{bootstrap.tracking.isTracking ? "Tracking Active" : "Start Tracking"}</div>
+            <div className="text-[13px] font-medium">
+              {bootstrap.tracking.isTracking ? "Stop Tracking" : "Start Tracking"}
+            </div>
             <div className="mt-0.5 text-[11px] text-white/35">
               {bootstrap.tracking.isTracking ? `${bootstrap.tracking.eventCount} events` : "Record activity context"}
             </div>

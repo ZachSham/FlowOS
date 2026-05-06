@@ -1,6 +1,7 @@
 export const ipcChannels = {
   getBootstrapState: "bootstrap:get-state",
   startTracking: "tracking:start",
+  stopTracking: "tracking:stop",
   enterFlowMode: "flow:enter",
   stateUpdated: "state:updated",
   trayAction: "tray:action",

@@ -201,6 +201,12 @@ async function bootstrap() {
     return startTracking();
   });
 
+  ipcMain.handle(ipcChannels.stopTracking, () => {
+    const result = trackingSession.stop();
+    refreshMenuBar();
+    return result;
+  });
+
   ipcMain.handle(ipcChannels.enterFlowMode, async (_event, payload: { mode?: FlowMode } | undefined) => {
     const mode: FlowMode = payload?.mode === "research" ? "research" : "coding";
     return await runEnterFlowMode(mode);

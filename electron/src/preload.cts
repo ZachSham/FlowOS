@@ -15,6 +15,7 @@ type StateUpdatePayload = {
 const channels = {
   getBootstrapState: "bootstrap:get-state",
   startTracking: "tracking:start",
+  stopTracking: "tracking:stop",
   enterFlowMode: "flow:enter",
   stateUpdated: "state:updated",
   trayAction: "tray:action",
@@ -29,6 +30,7 @@ try {
   contextBridge.exposeInMainWorld("flowos", {
     getBootstrapState: () => ipcRenderer.invoke(channels.getBootstrapState),
     startTracking: () => ipcRenderer.invoke(channels.startTracking),
+    stopTracking: () => ipcRenderer.invoke(channels.stopTracking),
     enterFlowMode: (mode: "coding" | "research") =>
       ipcRenderer.invoke(channels.enterFlowMode, { mode }),
     onStateUpdated: (listener: (state: StateUpdatePayload) => void) => {

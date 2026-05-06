@@ -31,6 +31,11 @@ export class TrackingSession {
     return this.getState();
   }
 
+  stop() {
+    this.isTracking = false;
+    return this.getState();
+  }
+
   getState(): TrackingState {
     return {
       isTracking: this.isTracking,
