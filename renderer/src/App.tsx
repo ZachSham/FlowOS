@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useVoiceDictation } from "./hooks/useVoiceDictation";
+import { AnalyticsPanel } from "./components/AnalyticsPanel";
+import { TriggerToast } from "./components/TriggerToast";
+import { LicensePanel } from "./components/LicensePanel";
 
 type TrackingEventRecord = {
   timestamp: string;
@@ -52,6 +55,40 @@ type BootstrapState = {
   };
 };
 
+interface DailyStat {
+  date: string;
+  total_focus_secs: number;
+  coding_secs: number;
+  research_secs: number;
+  commands_run: number;
+  sessions_count: number;
+}
+
+interface WeeklyRollup {
+  totalFocusSecs: number;
+  codingSecs: number;
+  researchSecs: number;
+  commandsRun: number;
+  sessionsCount: number;
+  dominantMode: "coding" | "research" | "balanced";
+  avgDailyFocusMins: number;
+}
+
+interface License {
+  key: string;
+  email: string | null;
+  plan: string;
+  activated_at: string;
+  expires_at: string | null;
+}
+
+interface TriggerSuggestion {
+  kind: string;
+  suggestedMode: string;
+  reason: string;
+  confidence: number;
+}
+
 declare global {
   interface Window {
     flowos?: {
@@ -68,6 +105,11 @@ declare global {
       saveLayout: (payload: { name: string; mode: string; windows: unknown[] }) => Promise<SavedLayout>;
       deleteLayout: (id: string) => Promise<void>;
       recallLayout: (id: string) => Promise<{ ok: boolean; applied: unknown[] }>;
+      analyticsWeekly: () => Promise<{ rollup: WeeklyRollup; days: DailyStat[] } | null>;
+      licenseGet: () => Promise<License | null>;
+      licenseActivate: (key: string) => Promise<unknown>;
+      licenseDeactivate: () => Promise<void>;
+      onTriggerSuggestion: (cb: (s: TriggerSuggestion) => void) => () => void;
     };
   }
 }
@@ -91,12 +133,23 @@ const fallbackBootstrap: BootstrapState = {
   }
 };
 
+type AppTab = "home" | "analytics" | "license";
+
 export function App() {
   const [bootstrap, setBootstrap] = useState<BootstrapState>(fallbackBootstrap);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [layouts, setLayouts] = useState<SavedLayout[]>([]);
+  const [tab, setTab] = useState<AppTab>("home");
+  const [triggerSuggestion, setTriggerSuggestion] = useState<TriggerSuggestion | null>(null);
+  const [license, setLicense] = useState<License | null>(null);
+
+  useEffect(() => {
+    const unsub = window.flowos?.onTriggerSuggestion((s) => setTriggerSuggestion(s));
+    return () => { unsub?.(); };
+  }, []);
+
   useEffect(() => {
     if (!window.flowos) {
       setErrorMessage("Electron preload bridge is unavailable in this window.");
@@ -307,7 +360,7 @@ export function App() {
       }}
     >
       {/* ── Header ── */}
-      <div className="flex shrink-0 items-center justify-between px-4 pb-3 pt-4">
+      <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-4">
         <div className="flex items-center gap-2">
           <div className={`h-2 w-2 rounded-full ${isListening ? "animate-pulse bg-red-400" : "bg-orange-400"}`} />
           <span className="text-[13px] font-semibold tracking-tight">FlowOS</span>
@@ -320,7 +373,49 @@ export function App() {
         ) : null}
       </div>
 
-      {/* ── Mic button ── */}
+      {/* ── Tab bar ── */}
+      <div className="flex shrink-0 gap-1 px-3 pb-2">
+        {(["home", "analytics", "license"] as AppTab[]).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors ${
+              tab === t ? "bg-white/[0.10] text-white" : "text-white/30 hover:text-white/60"
+            }`}
+          >
+            {t === "home" ? "Home" : t === "analytics" ? "Analytics" : "Pro"}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Proactive trigger toast (licensed users only) ── */}
+      {triggerSuggestion && license && (
+        <TriggerToast
+          suggestedMode={triggerSuggestion.suggestedMode}
+          reason={triggerSuggestion.reason}
+          onAccept={() => {
+            void window.flowos?.enterFlowMode(triggerSuggestion.suggestedMode as "coding" | "research" | "auto");
+            setTriggerSuggestion(null);
+          }}
+          onDismiss={() => setTriggerSuggestion(null)}
+        />
+      )}
+
+      {/* ── Non-home tabs ── */}
+      {tab === "analytics" && (
+        <div className="flex-1 overflow-y-auto">
+          <AnalyticsPanel />
+        </div>
+      )}
+      {tab === "license" && (
+        <div className="flex-1 overflow-y-auto">
+          <LicensePanel onLicenseChange={setLicense} />
+        </div>
+      )}
+      {tab !== "home" && <div className="mx-3 h-px shrink-0 bg-white/[0.06]" />}
+
+      {/* ── Home tab content ── */}
+      {tab === "home" && (<>
       <div className="shrink-0 px-3 pb-3">
         <button
           type="button"
@@ -477,6 +572,7 @@ export function App() {
           ) : null}
         </div>
       </div>
+      </>)}
 
       {isSubmitting ? (
         <div className="absolute bottom-3 right-3">
