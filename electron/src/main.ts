@@ -546,9 +546,10 @@ async function bootstrap() {
       menuBarTray.on("click", (_event, bounds) => {
         togglePopover(bounds);
       });
+      menuBarTray.on("right-click", () => {
+        menuBarTray?.popUpContextMenu(buildMenuBarMenu());
+      });
     }
-
-    menuBarTray.setContextMenu(buildMenuBarMenu());
   }
 
   refreshMenuBar();

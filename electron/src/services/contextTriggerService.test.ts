@@ -60,4 +60,47 @@ describe("createContextTriggerService", () => {
     vi.advanceTimersByTime(200);
     expect(onSuggestion).not.toHaveBeenCalled();
   });
+
+  it("fires again after mode changes away from suggested mode", () => {
+    service.setActiveMode("coding");
+    // Switch away from coding
+    service.setActiveMode("research");
+    service.onAppActivated("com.microsoft.VSCode", []);
+    vi.advanceTimersByTime(150);
+    // VSCode → coding suggestion, active mode is research → should fire
+    expect(onSuggestion).toHaveBeenCalledOnce();
+    expect((onSuggestion.mock.calls[0]?.[0] as { suggestedMode: string }).suggestedMode).toBe("coding");
+  });
+
+  it("does not fire for low-confidence result (unclear)", () => {
+    const lowConfidenceAnalyze = () => ({ mode: "unclear", confidence: 0.1, signals: [] });
+    const localService = createContextTriggerService({
+      onSuggestion: onSuggestion as (s: import("./contextTriggerService.js").TriggerSuggestion) => void,
+      debounceMs: 100,
+      analyze: lowConfidenceAnalyze,
+    });
+    localService.onAppActivated("com.unknown.app", []);
+    vi.advanceTimersByTime(200);
+    expect(onSuggestion).not.toHaveBeenCalled();
+  });
+
+  it("does not fire for mixed mode result", () => {
+    const mixedAnalyze = () => ({ mode: "mixed", confidence: 0.5, signals: [] });
+    const localService = createContextTriggerService({
+      onSuggestion: onSuggestion as (s: import("./contextTriggerService.js").TriggerSuggestion) => void,
+      debounceMs: 100,
+      analyze: mixedAnalyze,
+    });
+    localService.onAppActivated("com.apple.Safari", []);
+    vi.advanceTimersByTime(200);
+    expect(onSuggestion).not.toHaveBeenCalled();
+  });
+
+  it("suggestion includes reason string from signals", () => {
+    service.onAppActivated("com.microsoft.VSCode", []);
+    vi.advanceTimersByTime(150);
+    const suggestion = onSuggestion.mock.calls[0]?.[0] as { reason: string; confidence: number };
+    expect(suggestion.reason).toBeTruthy();
+    expect(suggestion.confidence).toBeGreaterThan(0);
+  });
 });

@@ -58,4 +58,48 @@ describe("getWeeklyRollup", () => {
     expect(rollup.totalFocusSecs).toBe(5400);
     expect(rollup.dominantMode).toBe("coding");
   });
+
+  it("returns balanced when coding and research are roughly equal", () => {
+    upsertDailyStat(db, "2026-05-06", { totalFocusSecs: 2000, codingSecs: 1000, researchSecs: 1000, commandsRun: 0, sessionsCount: 1 });
+    const rollup = getWeeklyRollup(db);
+    expect(rollup.dominantMode).toBe("balanced");
+  });
+
+  it("returns research when research > 60% of total", () => {
+    upsertDailyStat(db, "2026-05-06", { totalFocusSecs: 1000, codingSecs: 300, researchSecs: 700, commandsRun: 0, sessionsCount: 1 });
+    const rollup = getWeeklyRollup(db);
+    expect(rollup.dominantMode).toBe("research");
+  });
+
+  it("returns avgDailyFocusMins as 0 when no data", () => {
+    const rollup = getWeeklyRollup(db);
+    expect(rollup.avgDailyFocusMins).toBe(0);
+    expect(rollup.totalFocusSecs).toBe(0);
+    expect(rollup.dominantMode).toBe("balanced");
+  });
+
+  it("caps getDailyStats to 7 rows even if more exist", () => {
+    for (let i = 1; i <= 10; i++) {
+      upsertDailyStat(db, `2026-05-${String(i).padStart(2, "0")}`, { totalFocusSecs: 100, codingSecs: 100, researchSecs: 0, commandsRun: 0, sessionsCount: 1 });
+    }
+    const rows = getDailyStats(db, 7);
+    expect(rows).toHaveLength(7);
+  });
+});
+
+describe("recordFocusEvent — all kinds", () => {
+  it("stores each valid event kind without error", () => {
+    const kinds = ["app_switch", "mode_enter", "mode_exit", "command_run", "voice_start"] as const;
+    for (const kind of kinds) {
+      recordFocusEvent(db, { sessionId: "s1", kind, app: "com.apple.Xcode", payload: null });
+    }
+    const rows = db.prepare("SELECT kind FROM focus_events").all() as Array<{ kind: string }>;
+    expect(rows.map((r) => r.kind).sort()).toEqual([...kinds].sort());
+  });
+
+  it("stores payload JSON string", () => {
+    recordFocusEvent(db, { sessionId: "s1", kind: "command_run", app: null, payload: JSON.stringify({ transcript: "open file" }) });
+    const row = db.prepare("SELECT payload FROM focus_events").get() as { payload: string };
+    expect(JSON.parse(row.payload)).toMatchObject({ transcript: "open file" });
+  });
 });
