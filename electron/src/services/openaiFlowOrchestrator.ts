@@ -557,6 +557,25 @@ export class OpenAIFlowOrchestrator {
     });
   }
 
+  async applyLayoutFrames(
+    frames: Array<{ windowId: string; x: number; y: number; width: number; height: number }>
+  ): Promise<{ ok: boolean; applied: unknown[] }> {
+    const windowEditor = createWindowEditor(this.bridge);
+    const results: unknown[] = [];
+    for (const frame of frames) {
+      try {
+        const result = await windowEditor.setFrame(frame.windowId, {
+          x: frame.x, y: frame.y, width: frame.width, height: frame.height
+        });
+        results.push({ windowId: frame.windowId, result });
+      } catch (err) {
+        results.push({ windowId: frame.windowId, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    const anySucceeded = frames.length === 0 || results.some((r) => !("error" in (r as object)));
+    return { ok: anySucceeded, applied: results };
+  }
+
   private async safeSystemSnapshot(): Promise<SystemSnapshot | null> {
     try {
       return (await this.bridge.request("system.snapshot", {})) as SystemSnapshot;
@@ -739,7 +758,7 @@ export class OpenAIFlowOrchestrator {
             results.push({ windowId: frame.windowId, error: err instanceof Error ? err.message : String(err) });
           }
         }
-        const anySucceeded = results.some((r) => !("error" in (r as object)));
+        const anySucceeded = frames.length === 0 || results.some((r) => !("error" in (r as object)));
         return { ok: anySucceeded, applied: results };
       }
       case "list_layouts": {

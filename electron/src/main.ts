@@ -3,7 +3,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureDatabase } from "@flowos/db";
 import { startSession, endSession } from "./services/sessionStore.js";
-import { isLocalSttConfigured, resolveLocalSttConfig } from "./services/localSttConfig.js";
+import { isLocalSttConfigured } from "./services/localSttConfig.js";
 import { transcribeWebmAudio } from "./services/localStt.js";
 import { saveLayout, listLayouts, getLayout, deleteLayout } from "./services/layoutStore.js";
 import {
@@ -232,7 +232,8 @@ async function bootstrap() {
   });
 
   ipcMain.handle(ipcChannels.enterFlowMode, async (_event, payload: { mode?: FlowMode } | undefined) => {
-    const mode: FlowMode = payload?.mode === "research" ? "research" : "coding";
+    const requested = payload?.mode;
+    const mode: FlowMode = requested === "research" || requested === "auto" ? requested : "coding";
     return await runEnterFlowMode(mode);
   });
 
@@ -299,6 +300,8 @@ async function bootstrap() {
 
   ipcMain.handle(ipcChannels.saveLayout, (_event, payload: { name: string; mode: string; windows: unknown[] }) => {
     if (!db) throw new Error("Database not initialized");
+    if (typeof payload.name !== "string" || !payload.name.trim()) throw new Error("name must be a non-empty string");
+    if (typeof payload.mode !== "string" || !payload.mode.trim()) throw new Error("mode must be a non-empty string");
     if (!Array.isArray(payload.windows)) throw new Error("windows must be an array");
     return saveLayout(db, payload.name, payload.mode, payload.windows as Parameters<typeof saveLayout>[3]);
   });
@@ -306,6 +309,13 @@ async function bootstrap() {
   ipcMain.handle(ipcChannels.deleteLayout, (_event, id: string) => {
     if (!db) throw new Error("Database not initialized");
     deleteLayout(db, id);
+  });
+
+  ipcMain.handle(ipcChannels.recallLayout, async (_event, id: string) => {
+    if (!db) throw new Error("Database not initialized");
+    const layout = getLayout(db, id);
+    if (!layout) throw new Error(`No layout found with id ${id}`);
+    return flowOrchestrator.applyLayoutFrames(layout.config);
   });
 
   function ensureBackgroundWindow() {
@@ -461,6 +471,10 @@ app.on("activate", () => {
 });
 
 app.on("before-quit", () => {
+  if (db && activeSessionId) {
+    endSession(db, activeSessionId);
+    activeSessionId = null;
+  }
   globalShortcut.unregisterAll();
   menuBarTray?.destroy();
   menuBarTray = null;

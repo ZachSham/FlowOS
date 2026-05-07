@@ -26,7 +26,8 @@ const channels = {
   hideWindow: "window:hide",
   saveLayout: "layout:save",
   listLayouts: "layout:list",
-  deleteLayout: "layout:delete"
+  deleteLayout: "layout:delete",
+  recallLayout: "layout:recall"
 } as const;
 
 try {
@@ -67,7 +68,8 @@ try {
     listLayouts: () => ipcRenderer.invoke(channels.listLayouts),
     saveLayout: (payload: { name: string; mode: string; windows: unknown[] }) =>
       ipcRenderer.invoke(channels.saveLayout, payload),
-    deleteLayout: (id: string) => ipcRenderer.invoke(channels.deleteLayout, id)
+    deleteLayout: (id: string) => ipcRenderer.invoke(channels.deleteLayout, id),
+    recallLayout: (id: string) => ipcRenderer.invoke(channels.recallLayout, id)
   });
 } catch (error) {
   console.error("[flowos][preload] failed to expose bridge", error);

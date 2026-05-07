@@ -12,5 +12,6 @@ export const ipcChannels = {
   hideWindow: "window:hide",
   saveLayout: "layout:save",
   listLayouts: "layout:list",
-  deleteLayout: "layout:delete"
+  deleteLayout: "layout:delete",
+  recallLayout: "layout:recall"
 } as const;

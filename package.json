@@ -10,7 +10,7 @@
     "shared"
   ],
   "scripts": {
-    "dev": "concurrently -k \"npm:dev:shared\" \"npm:dev:electron\" \"npm:dev:renderer\" \"npm:dev:app\"",
+    "dev": "npm run rebuild-native && concurrently -k \"npm:dev:shared\" \"npm:dev:electron\" \"npm:dev:renderer\" \"npm:dev:app\"",
     "dev:shared": "npm run build --workspace @flowos/db && npm run build --workspace @flowos/shared -- --watch",
     "dev:electron": "npm run build --workspace @flowos/electron -- --watch",
     "dev:renderer": "npm run dev --workspace @flowos/renderer",

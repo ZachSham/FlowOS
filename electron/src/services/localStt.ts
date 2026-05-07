@@ -115,6 +115,6 @@ export async function transcribeWebmAudio(audioData: Uint8Array): Promise<string
   } catch (error) {
     throw new Error(`[local-stt] ${error instanceof Error ? error.message : String(error)}`);
   } finally {
-    await rm(tmpDir, { recursive: true, force: true });
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 }

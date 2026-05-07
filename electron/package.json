@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "native": "node dist/actions/nativeCli.js",
-    "test": "vitest run",
+    "test": "npm rebuild better-sqlite3 && vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

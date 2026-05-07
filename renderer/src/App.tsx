@@ -65,7 +65,9 @@ declare global {
       showWindow: () => Promise<void>;
       hideWindow: () => Promise<void>;
       listLayouts: () => Promise<SavedLayout[]>;
+      saveLayout: (payload: { name: string; mode: string; windows: unknown[] }) => Promise<SavedLayout>;
       deleteLayout: (id: string) => Promise<void>;
+      recallLayout: (id: string) => Promise<{ ok: boolean; applied: unknown[] }>;
     };
   }
 }
@@ -423,7 +425,14 @@ export function App() {
                   <button
                     type="button"
                     disabled={isSubmitting}
-                    onClick={() => void handleVoiceTranscript(`recall layout ${layout.name}`)}
+                    onClick={() => {
+                      setIsSubmitting(true);
+                      setStatusMessage(`Restoring "${layout.name}"…`);
+                      void window.flowos?.recallLayout(layout.id)
+                        .then((result) => setStatusMessage(result.ok ? `"${layout.name}" restored.` : `Restore failed.`))
+                        .catch((err: unknown) => setErrorMessage(err instanceof Error ? err.message : String(err)))
+                        .finally(() => setIsSubmitting(false));
+                    }}
                     className="min-w-0 flex-1 text-left disabled:opacity-40"
                   >
                     <div className="truncate text-[12px] font-medium">{layout.name}</div>
