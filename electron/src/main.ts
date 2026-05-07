@@ -3,6 +3,8 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureDatabase } from "@flowos/db";
 import { startSession, endSession } from "./services/sessionStore.js";
+import { isLocalSttConfigured, resolveLocalSttConfig } from "./services/localSttConfig.js";
+import { transcribeWebmAudio } from "./services/localStt.js";
 import { saveLayout, listLayouts, getLayout, deleteLayout } from "./services/layoutStore.js";
 import {
   demoSuggestions,
@@ -252,8 +254,16 @@ async function bootstrap() {
   });
 
   ipcMain.handle(ipcChannels.transcribeAudio, async (_event, audioData: Uint8Array) => {
+    if (isLocalSttConfigured()) {
+      return await transcribeWebmAudio(audioData);
+    }
+
     const apiKey = process.env["OPENAI_API_KEY"]?.trim();
-    if (!apiKey) throw new Error("OPENAI_API_KEY is not set.");
+    if (!apiKey) {
+      throw new Error(
+        "No transcription backend configured. Either set OPENAI_API_KEY for cloud STT, or set FLOWOS_WHISPER_BIN and FLOWOS_WHISPER_MODEL for local STT."
+      );
+    }
 
     const form = new FormData();
     const audioBuffer = audioData.buffer.slice(
@@ -261,11 +271,7 @@ async function bootstrap() {
       audioData.byteOffset + audioData.byteLength
     ) as ArrayBuffer;
     form.append("model", "whisper-1");
-    form.append(
-      "file",
-      new Blob([audioBuffer], { type: "audio/webm" }),
-      "recording.webm"
-    );
+    form.append("file", new Blob([audioBuffer], { type: "audio/webm" }), "recording.webm");
 
     const response = await net.fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
