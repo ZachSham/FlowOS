@@ -32,6 +32,32 @@ CREATE TABLE IF NOT EXISTS suggestions (
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (session_id) REFERENCES sessions(id)
 );
+
+CREATE TABLE IF NOT EXISTS focus_events (
+  id          TEXT PRIMARY KEY,
+  session_id  TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  app         TEXT,
+  payload     TEXT,
+  occurred_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+  date           TEXT PRIMARY KEY,
+  total_focus_secs INTEGER NOT NULL DEFAULT 0,
+  coding_secs      INTEGER NOT NULL DEFAULT 0,
+  research_secs    INTEGER NOT NULL DEFAULT 0,
+  commands_run     INTEGER NOT NULL DEFAULT 0,
+  sessions_count   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS licenses (
+  key          TEXT PRIMARY KEY,
+  email        TEXT,
+  plan         TEXT NOT NULL DEFAULT 'pro',
+  activated_at TEXT NOT NULL,
+  expires_at   TEXT
+);
 `;
 
 export function ensureDatabase(dbPath = process.env.FLOWOS_DB_PATH ?? "./data/flowos.db") {
@@ -42,4 +68,30 @@ export function ensureDatabase(dbPath = process.env.FLOWOS_DB_PATH ?? "./data/fl
   db.exec(baseSchemaSql);
 
   return db;
+}
+
+export interface FocusEvent {
+  id: string;
+  session_id: string;
+  kind: "app_switch" | "mode_enter" | "mode_exit" | "command_run" | "voice_start";
+  app: string | null;
+  payload: string | null;
+  occurred_at: string;
+}
+
+export interface DailyStat {
+  date: string;
+  total_focus_secs: number;
+  coding_secs: number;
+  research_secs: number;
+  commands_run: number;
+  sessions_count: number;
+}
+
+export interface License {
+  key: string;
+  email: string | null;
+  plan: string;
+  activated_at: string;
+  expires_at: string | null;
 }
