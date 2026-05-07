@@ -40,7 +40,7 @@ try {
     getBootstrapState: () => ipcRenderer.invoke(channels.getBootstrapState),
     startTracking: () => ipcRenderer.invoke(channels.startTracking),
     stopTracking: () => ipcRenderer.invoke(channels.stopTracking),
-    enterFlowMode: (mode: "coding" | "research") =>
+    enterFlowMode: (mode: "coding" | "research" | "auto") =>
       ipcRenderer.invoke(channels.enterFlowMode, { mode }),
     onStateUpdated: (listener: (state: StateUpdatePayload) => void) => {
       const wrapped = (_event: Electron.IpcRendererEvent, payload: StateUpdatePayload) => {

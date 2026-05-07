@@ -8,6 +8,7 @@ import { transcribeWebmAudio } from "./services/localStt.js";
 import { saveLayout, listLayouts, getLayout, deleteLayout } from "./services/layoutStore.js";
 import { recordFocusEvent, upsertDailyStat, getWeeklyRollup, getDailyStats } from "./services/analyticsStore.js";
 import { createContextTriggerService, type ContextTriggerService } from "./services/contextTriggerService.js";
+import { getActiveLicense, saveLicense, removeLicense, validateLicenseKey } from "./services/licenseStore.js";
 import {
   demoSuggestions,
   demoTaskState,
@@ -71,6 +72,7 @@ let activeSessionId: string | null = null;
 let activeFlowMode: "coding" | "research" | "auto" | null = null;
 let trackingStartedAt: number | null = null;
 let triggerService: ContextTriggerService | null = null;
+let licenseActivationInProgress = false;
 let lastFlowRun: FlowRunResult | null = null;
 let flowModeStatus: "idle" | "running" | "completed" | "failed" = "idle";
 const GLOBAL_MIC_SHORTCUT = "CommandOrControl+Shift+K";
@@ -262,10 +264,11 @@ async function bootstrap() {
       if (trackingStartedAt) {
         const focusSecs = Math.round((Date.now() - trackingStartedAt) / 1000);
         const date = new Date().toISOString().slice(0, 10);
+        const half = Math.round(focusSecs / 2);
         upsertDailyStat(db, date, {
           totalFocusSecs: focusSecs,
-          codingSecs: activeFlowMode === "coding" ? focusSecs : 0,
-          researchSecs: activeFlowMode === "research" ? focusSecs : 0,
+          codingSecs: activeFlowMode === "coding" ? focusSecs : activeFlowMode === "auto" ? half : 0,
+          researchSecs: activeFlowMode === "research" ? focusSecs : activeFlowMode === "auto" ? focusSecs - half : 0,
           commandsRun: 0,
           sessionsCount: 1,
         });
@@ -379,7 +382,7 @@ async function bootstrap() {
     return flowOrchestrator.applyLayoutFrames(layout.config);
   });
 
-  ipcMain.handle("analytics:weekly", () => {
+  ipcMain.handle(ipcChannels.analyticsWeekly, () => {
     if (!db) return null;
     return {
       rollup: getWeeklyRollup(db),
@@ -387,32 +390,37 @@ async function bootstrap() {
     };
   });
 
-  ipcMain.handle("license:get", () => {
+  ipcMain.handle(ipcChannels.licenseGet, () => {
     if (!db) return null;
-    return db.prepare("SELECT * FROM licenses LIMIT 1").get() ?? null;
+    return getActiveLicense(db) ?? null;
   });
 
-  ipcMain.handle("license:activate", async (_event, key: string) => {
+  ipcMain.handle(ipcChannels.licenseActivate, async (_event, key: string) => {
     if (!db) throw new Error("DB not ready");
+    if (licenseActivationInProgress) throw new Error("Activation already in progress");
     const trimmed = key.trim();
     if (!trimmed) throw new Error("License key is required");
-    const { validateLicenseKey, saveLicense } = await import("./services/licenseStore.js");
-    const result = await validateLicenseKey(trimmed);
-    if (!result.valid) throw new Error("Invalid license key");
-    const license = {
-      key: trimmed,
-      email: result.email ?? null,
-      plan: result.plan ?? "pro",
-      activated_at: new Date().toISOString(),
-      expires_at: result.expires_at ?? null,
-    };
-    saveLicense(db, license);
-    return license;
+    licenseActivationInProgress = true;
+    try {
+      const result = await validateLicenseKey(trimmed, { firstActivation: true });
+      if (!result.valid) throw new Error("Invalid license key");
+      const license = {
+        key: trimmed,
+        email: result.email ?? null,
+        plan: result.plan ?? "pro",
+        activated_at: new Date().toISOString(),
+        expires_at: result.expires_at ?? null,
+      };
+      saveLicense(db, license);
+      return license;
+    } finally {
+      licenseActivationInProgress = false;
+    }
   });
 
-  ipcMain.handle("license:deactivate", () => {
+  ipcMain.handle(ipcChannels.licenseDeactivate, () => {
     if (!db) return;
-    db.prepare("DELETE FROM licenses").run();
+    removeLicense(db);
   });
 
   function ensureBackgroundWindow() {
@@ -575,10 +583,11 @@ app.on("before-quit", () => {
     if (trackingStartedAt) {
       const focusSecs = Math.round((Date.now() - trackingStartedAt) / 1000);
       const date = new Date().toISOString().slice(0, 10);
+      const half = Math.round(focusSecs / 2);
       upsertDailyStat(db, date, {
         totalFocusSecs: focusSecs,
-        codingSecs: activeFlowMode === "coding" ? focusSecs : 0,
-        researchSecs: activeFlowMode === "research" ? focusSecs : 0,
+        codingSecs: activeFlowMode === "coding" ? focusSecs : activeFlowMode === "auto" ? half : 0,
+        researchSecs: activeFlowMode === "research" ? focusSecs : activeFlowMode === "auto" ? focusSecs - half : 0,
         commandsRun: 0,
         sessionsCount: 1,
       });

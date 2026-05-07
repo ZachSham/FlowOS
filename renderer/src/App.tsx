@@ -150,6 +150,11 @@ export function App() {
     return () => { unsub?.(); };
   }, []);
 
+  // Load license on startup so trigger toasts work immediately for Pro users
+  useEffect(() => {
+    window.flowos?.licenseGet().then((l) => setLicense(l)).catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!window.flowos) {
       setErrorMessage("Electron preload bridge is unavailable in this window.");

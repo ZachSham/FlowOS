@@ -43,9 +43,13 @@ export function LicensePanel({ onLicenseChange }: Props) {
   }
 
   async function deactivate() {
-    await window.flowos?.licenseDeactivate();
-    setLicense(null);
-    onLicenseChange(null);
+    try {
+      await window.flowos?.licenseDeactivate();
+      setLicense(null);
+      onLicenseChange(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Deactivation failed");
+    }
   }
 
   if (license) {

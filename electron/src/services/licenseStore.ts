@@ -25,7 +25,10 @@ export function removeLicense(db: DB): void {
   db.prepare("DELETE FROM licenses").run();
 }
 
-export async function validateLicenseKey(key: string): Promise<{ valid: boolean; email?: string; plan?: string; expires_at?: string }> {
+export async function validateLicenseKey(
+  key: string,
+  opts: { firstActivation?: boolean } = {}
+): Promise<{ valid: boolean; email?: string; plan?: string; expires_at?: string }> {
   try {
     const resp = await fetch("https://api.flowos.app/v1/license/validate", {
       method: "POST",
@@ -36,7 +39,8 @@ export async function validateLicenseKey(key: string): Promise<{ valid: boolean;
     if (!resp.ok) return { valid: false };
     return await resp.json() as { valid: boolean; email?: string; plan?: string; expires_at?: string };
   } catch {
-    // Network failure — treat stored key as valid (offline grace)
+    // Offline grace only for re-validation of an already-stored key, not first activation
+    if (opts.firstActivation) return { valid: false };
     return { valid: true };
   }
 }
