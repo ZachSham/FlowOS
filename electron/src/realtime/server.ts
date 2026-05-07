@@ -8,13 +8,19 @@ import type {
   ChromeCommandResultMap,
   ChromeSnapshot,
   RealtimeMessage,
-  SignalSource
+  SignalSource,
+  VscodeCommand,
+  VscodeCommandPayloadMap,
+  VscodeCommandRequest,
+  VscodeCommandResult,
+  VscodeCommandResultMap,
+  VscodeSnapshot
 } from "@flowos/shared";
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const HEARTBEAT_TIMEOUT_MS = 45_000;
-const COMMAND_TIMEOUT_MS = 12_000;
-const EXTENSION_SOURCES: ReadonlySet<SignalSource> = new Set(["chrome-extension"]);
+const COMMAND_TIMEOUT_MS = 15_000;
+const EXTENSION_SOURCES: ReadonlySet<SignalSource> = new Set(["chrome-extension", "vscode-extension"]);
 
 interface ConnectedClient {
   id: string;
@@ -26,7 +32,7 @@ interface ConnectedClient {
 }
 
 interface PendingCommand {
-  command: ChromeCommand;
+  command: string;
   resolve: (value: unknown) => void;
   reject: (reason?: unknown) => void;
   timeout: NodeJS.Timeout;
@@ -35,6 +41,7 @@ interface PendingCommand {
 interface RealtimeServerOptions {
   authToken?: string;
   onChromeSnapshot?: (snapshot: ChromeSnapshot) => void;
+  onVscodeSnapshot?: (snapshot: VscodeSnapshot) => void;
 }
 
 export interface RealtimeServerHandle {
@@ -50,6 +57,10 @@ export interface RealtimeServerHandle {
     command: C,
     payload: ChromeCommandPayloadMap[C]
   ): Promise<ChromeCommandResultMap[C]>;
+  requestVscodeCommand<C extends VscodeCommand>(
+    command: C,
+    payload: VscodeCommandPayloadMap[C]
+  ): Promise<VscodeCommandResultMap[C]>;
 }
 
 export function createRealtimeServer(port: number, options: RealtimeServerOptions = {}): RealtimeServerHandle {
@@ -123,7 +134,7 @@ export function createRealtimeServer(port: number, options: RealtimeServerOption
     command: C,
     payload: ChromeCommandPayloadMap[C]
   ): Promise<ChromeCommandResultMap[C]> {
-    const chromeClient = pickChromeClient(clients);
+    const chromeClient = pickClientBySource(clients, "chrome-extension");
     if (!chromeClient) {
       throw new Error("No authenticated chrome-extension client connected");
     }
@@ -154,6 +165,44 @@ export function createRealtimeServer(port: number, options: RealtimeServerOption
       });
 
       chromeClient.socket.send(JSON.stringify(outbound));
+    });
+  }
+
+  async function requestVscodeCommand<C extends VscodeCommand>(
+    command: C,
+    payload: VscodeCommandPayloadMap[C]
+  ): Promise<VscodeCommandResultMap[C]> {
+    const vscodeClient = pickClientBySource(clients, "vscode-extension");
+    if (!vscodeClient) {
+      throw new Error("No authenticated vscode-extension client connected. Install and enable the FlowOS VS Code extension.");
+    }
+
+    const request: VscodeCommandRequest<C> = {
+      requestId: `vscode_${randomUUID()}`,
+      command,
+      payload,
+      issuedAt: new Date().toISOString()
+    };
+
+    const outbound: RealtimeMessage = {
+      type: "vscode.command.request",
+      payload: request as VscodeCommandRequest
+    };
+
+    return await new Promise<VscodeCommandResultMap[C]>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingCommands.delete(request.requestId);
+        reject(new Error(`Timed out waiting for ${command} (${request.requestId})`));
+      }, COMMAND_TIMEOUT_MS);
+
+      pendingCommands.set(request.requestId, {
+        command,
+        resolve: (result) => resolve(result as VscodeCommandResultMap[C]),
+        reject,
+        timeout
+      });
+
+      vscodeClient.socket.send(JSON.stringify(outbound));
     });
   }
 
@@ -189,8 +238,14 @@ export function createRealtimeServer(port: number, options: RealtimeServerOption
       case "chrome.command.result":
         handleCommandResult(message.payload);
         return;
+      case "vscode.snapshot":
+        options.onVscodeSnapshot?.(message.payload);
+        return;
+      case "vscode.command.result":
+        handleCommandResult(message.payload as VscodeCommandResult);
+        return;
       default:
-        console.log("[realtime] event", message.type, message);
+        console.log("[realtime] event", message.type);
     }
   }
 
@@ -231,10 +286,10 @@ export function createRealtimeServer(port: number, options: RealtimeServerOption
     socket.send(JSON.stringify(ack));
   }
 
-  function handleCommandResult(result: ChromeCommandResult) {
+  function handleCommandResult(result: ChromeCommandResult | VscodeCommandResult) {
     const pending = pendingCommands.get(result.requestId);
     if (!pending) {
-      console.warn(`[realtime] unexpected chrome command result ${result.requestId}`);
+      console.warn(`[realtime] unexpected command result ${result.requestId}`);
       return;
     }
 
@@ -252,21 +307,17 @@ export function createRealtimeServer(port: number, options: RealtimeServerOption
   return {
     stop,
     getConnectedClients,
-    requestChromeCommand
+    requestChromeCommand,
+    requestVscodeCommand
   };
 }
 
-function pickChromeClient(
-  clients: Map<WebSocket, ConnectedClient>
+function pickClientBySource(
+  clients: Map<WebSocket, ConnectedClient>,
+  source: SignalSource
 ): ConnectedClient | undefined {
-  const chromeClients = Array.from(clients.values()).filter(
-    (client) => client.source === "chrome-extension"
-  );
-
-  if (chromeClients.length === 0) {
-    return undefined;
-  }
-
-  chromeClients.sort((a, b) => b.lastHeartbeatAt - a.lastHeartbeatAt);
-  return chromeClients[0];
+  const matching = Array.from(clients.values()).filter((c) => c.source === source);
+  if (matching.length === 0) return undefined;
+  matching.sort((a, b) => b.lastHeartbeatAt - a.lastHeartbeatAt);
+  return matching[0];
 }

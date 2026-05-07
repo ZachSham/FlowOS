@@ -4,7 +4,11 @@ import type {
   ChromeCommandResultMap,
   ChromeSnapshot,
   NativeActionResult,
-  SystemSnapshot
+  SystemSnapshot,
+  VscodeCommand,
+  VscodeCommandPayloadMap,
+  VscodeCommandResultMap,
+  VscodeSnapshot
 } from "@flowos/shared";
 import { net } from "electron";
 import { applySplitLayout } from "../actions/splitLayout.js";
@@ -18,6 +22,11 @@ type RunChromeCommand = <C extends ChromeCommand>(
   payload: ChromeCommandPayloadMap[C]
 ) => Promise<ChromeCommandResultMap[C]>;
 
+type RunVscodeCommand = <C extends VscodeCommand>(
+  command: C,
+  payload: VscodeCommandPayloadMap[C]
+) => Promise<VscodeCommandResultMap[C]>;
+
 export type FlowMode = "coding" | "research" | "auto";
 
 export interface MemoryEntry {
@@ -30,7 +39,9 @@ interface FlowOrchestratorOptions {
   bridge: NativeHelperBridge;
   trackingSession: TrackingSession;
   getChromeSnapshot?: () => ChromeSnapshot | null;
+  getVscodeSnapshot?: () => VscodeSnapshot | null;
   runChromeCommand?: RunChromeCommand;
+  runVscodeCommand?: RunVscodeCommand;
   getMemory?: () => MemoryEntry[];
   saveLayout?: (name: string, mode: string, windows: unknown[]) => unknown;
   listLayouts?: () => unknown[];
@@ -478,6 +489,141 @@ const TOOL_DEFINITIONS = [
         additionalProperties: false
       }
     }
+  },
+  // ── VS Code tools ────────────────────────────────────────────────────────
+  {
+    type: "function" as const,
+    function: {
+      name: "get_vscode_snapshot",
+      description: "Get the current VS Code workspace state: active file, language, cursor position, open tabs, diagnostics (errors/warnings), git branch and changes, and open terminals. Call this before any VS Code operation.",
+      parameters: { type: "object", properties: {}, additionalProperties: false }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vscode_open_file",
+      description: "Open a file in VS Code by its absolute path, optionally jumping to a specific line and column. Use get_vscode_snapshot to find the workspace root first if you need relative paths.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Absolute path to the file to open." },
+          line: { type: "number", description: "Line number to jump to (1-based). Optional." },
+          column: { type: "number", description: "Column number (1-based). Optional." },
+          preview: { type: "boolean", description: "If true, open as a preview tab. Defaults to false." }
+        },
+        required: ["path"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vscode_search_text",
+      description: "Search for text across all files in the VS Code workspace. Returns matched file paths, line numbers, and line previews.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Text to search for." },
+          caseSensitive: { type: "boolean", description: "Case sensitive search. Defaults to false." },
+          includePattern: { type: "string", description: "Glob pattern for files to include, e.g. '**/*.ts'. Defaults to all files." },
+          excludePattern: { type: "string", description: "Glob pattern for files to exclude, e.g. '**/node_modules/**'." }
+        },
+        required: ["query"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vscode_run_terminal_command",
+      description: "Run a shell command in a VS Code terminal. Creates a named terminal if one with that name does not already exist. The terminal stays open after the command runs. Use this for build, test, lint, install, and git commands.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "Shell command to run." },
+          terminalName: { type: "string", description: "Name for the terminal. Defaults to 'FlowOS'. Use specific names like 'Tests', 'Build', 'Dev Server' to separate concerns." },
+          cwd: { type: "string", description: "Working directory. Defaults to workspace root." }
+        },
+        required: ["command"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vscode_execute_command",
+      description: "Execute a VS Code built-in command by its command ID. Only safe, non-destructive commands are allowed. Examples: 'editor.action.formatDocument', 'editor.foldAll', 'workbench.action.files.saveAll', 'git.refresh', 'editor.action.organizeImports'.",
+      parameters: {
+        type: "object",
+        properties: {
+          commandId: { type: "string", description: "VS Code command ID to execute." },
+          args: { type: "array", description: "Optional arguments for the command.", items: {} }
+        },
+        required: ["commandId"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vscode_get_diagnostics",
+      description: "Get all current errors and warnings in the VS Code workspace. Returns file path, severity, line number, and message for each diagnostic.",
+      parameters: { type: "object", properties: {}, additionalProperties: false }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vscode_split_editor",
+      description: "Split the current editor pane in VS Code, creating a second editor column. Useful for viewing two files side by side.",
+      parameters: {
+        type: "object",
+        properties: {
+          direction: { type: "string", enum: ["right", "down"], description: "Direction to split: 'right' (default) or 'down'." }
+        },
+        required: ["direction"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vscode_focus_panel",
+      description: "Bring a VS Code panel into focus: terminal, problems (errors/warnings list), output, file explorer, or source control (git).",
+      parameters: {
+        type: "object",
+        properties: {
+          panel: {
+            type: "string",
+            enum: ["terminal", "problems", "output", "explorer", "source-control"],
+            description: "Panel to focus."
+          }
+        },
+        required: ["panel"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "vscode_symbol_search",
+      description: "Search for a symbol (function, class, variable) across all files in the VS Code workspace. Returns matching symbol names, their file paths, and line numbers.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Symbol name or partial name to search for." }
+        },
+        required: ["query"],
+        additionalProperties: false
+      }
+    }
   }
 ];
 
@@ -485,7 +631,9 @@ export class OpenAIFlowOrchestrator {
   private readonly bridge: NativeHelperBridge;
   private readonly trackingSession: TrackingSession;
   private readonly getChromeSnapshot?: () => ChromeSnapshot | null;
+  private readonly getVscodeSnapshot?: () => VscodeSnapshot | null;
   private readonly runChromeCommand?: RunChromeCommand;
+  private readonly runVscodeCommand?: RunVscodeCommand;
   private readonly getMemory?: () => MemoryEntry[];
   private readonly saveLayout?: (name: string, mode: string, windows: unknown[]) => unknown;
   private readonly listLayouts?: () => unknown[];
@@ -495,7 +643,9 @@ export class OpenAIFlowOrchestrator {
     this.bridge = options.bridge;
     this.trackingSession = options.trackingSession;
     this.getChromeSnapshot = options.getChromeSnapshot;
+    this.getVscodeSnapshot = options.getVscodeSnapshot;
     this.runChromeCommand = options.runChromeCommand;
+    this.runVscodeCommand = options.runVscodeCommand;
     this.getMemory = options.getMemory;
     this.saveLayout = options.saveLayout;
     this.listLayouts = options.listLayouts;
@@ -547,6 +697,7 @@ export class OpenAIFlowOrchestrator {
     const trackingSummary = this.trackingSession.getSummary();
     const initialSystemSnapshot = await this.safeSystemSnapshot();
     const initialChromeSnapshot = this.safeChromeSnapshot();
+    const initialVscodeSnapshot = this.safeVscodeSnapshot();
     const memoryEntries = this.getMemory?.() ?? [];
     return this.runLoop({
       apiKey: apiKey!,
@@ -556,7 +707,8 @@ export class OpenAIFlowOrchestrator {
         initialSystemSnapshot,
         initialChromeSnapshot,
         trackingSummary,
-        memoryEntries
+        memoryEntries,
+        initialVscodeSnapshot
       ),
       emptySummary: "Voice command finished without a summary."
     });
@@ -595,6 +747,21 @@ export class OpenAIFlowOrchestrator {
     } catch {
       return null;
     }
+  }
+
+  private safeVscodeSnapshot(): VscodeSnapshot | null {
+    try {
+      return this.getVscodeSnapshot?.() ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private requireVscodeRunner(): RunVscodeCommand {
+    if (!this.runVscodeCommand) {
+      throw new Error("VS Code command runner is not configured. Is the FlowOS VS Code extension installed and connected?");
+    }
+    return this.runVscodeCommand;
   }
 
   private async runLoop(input: {
@@ -778,6 +945,56 @@ export class OpenAIFlowOrchestrator {
         const margin = readOptionalNumber(input.margin, "margin") ?? 0;
         return applyTileLayout(windowEditor, { display, windowIds, columns, gap, margin });
       }
+      // ── VS Code tools ──────────────────────────────────────────────────────
+      case "get_vscode_snapshot":
+        return this.safeVscodeSnapshot() ?? {
+          ok: false,
+          error: "VS Code snapshot is not available. Install and enable the FlowOS VS Code extension."
+        };
+      case "vscode_open_file":
+        return this.requireVscodeRunner()("vscode.file.open", {
+          path: readString(input.path, "path"),
+          ...(typeof input.line === "number" ? { line: input.line } : {}),
+          ...(typeof input.column === "number" ? { column: input.column } : {}),
+          ...(typeof input.preview === "boolean" ? { preview: input.preview } : {})
+        });
+      case "vscode_search_text":
+        return this.requireVscodeRunner()("vscode.text.search", {
+          query: readString(input.query, "query"),
+          ...(typeof input.caseSensitive === "boolean" ? { caseSensitive: input.caseSensitive } : {}),
+          ...(typeof input.includePattern === "string" ? { includePattern: input.includePattern } : {}),
+          ...(typeof input.excludePattern === "string" ? { excludePattern: input.excludePattern } : {})
+        });
+      case "vscode_run_terminal_command":
+        return this.requireVscodeRunner()("vscode.terminal.run", {
+          command: readString(input.command, "command"),
+          ...(typeof input.terminalName === "string" ? { terminalName: input.terminalName } : {}),
+          ...(typeof input.cwd === "string" ? { cwd: input.cwd } : {})
+        });
+      case "vscode_execute_command":
+        return this.requireVscodeRunner()("vscode.command.execute", {
+          commandId: readString(input.commandId, "commandId"),
+          ...(Array.isArray(input.args) ? { args: input.args } : {})
+        });
+      case "vscode_get_diagnostics": {
+        const snap = this.safeVscodeSnapshot();
+        if (!snap) return { ok: false, error: "VS Code extension not connected." };
+        return { diagnostics: snap.diagnostics, totalErrors: snap.diagnostics.filter((d) => d.severity === "error").length, totalWarnings: snap.diagnostics.filter((d) => d.severity === "warning").length };
+      }
+      case "vscode_split_editor":
+        return this.requireVscodeRunner()("vscode.editor.split", {
+          direction: input.direction === "down" ? "down" : "right"
+        });
+      case "vscode_focus_panel": {
+        const validPanels = ["terminal", "problems", "output", "explorer", "source-control"] as const;
+        const panel = readString(input.panel, "panel") as typeof validPanels[number];
+        if (!validPanels.includes(panel)) throw new Error(`panel must be one of: ${validPanels.join(", ")}`);
+        return this.requireVscodeRunner()("vscode.panel.focus", { panel });
+      }
+      case "vscode_symbol_search":
+        return this.requireVscodeRunner()("vscode.symbol.search", {
+          query: readString(input.query, "query")
+        });
       default:
         throw new Error(`Unsupported tool: ${name}`);
     }
@@ -821,15 +1038,22 @@ export function buildVoicePrompt(
   initialSystemSnapshot: SystemSnapshot | null = null,
   initialChromeSnapshot: ChromeSnapshot | null = null,
   trackingSummary: ReturnType<TrackingSession["getSummary"]> | null = null,
-  memoryEntries: MemoryEntry[] = []
+  memoryEntries: MemoryEntry[] = [],
+  initialVscodeSnapshot: VscodeSnapshot | null = null
 ): string {
   const memoryContext = buildMemoryContext(memoryEntries);
+
+  const vscodeContext = initialVscodeSnapshot
+    ? `VS Code context: workspace="${initialVscodeSnapshot.workspaceName ?? "unknown"}", activeFile="${initialVscodeSnapshot.activeFile ?? "none"}", language="${initialVscodeSnapshot.activeLanguageId ?? "none"}", branch="${initialVscodeSnapshot.git?.branch ?? "unknown"}", errors=${initialVscodeSnapshot.diagnostics.filter((d) => d.severity === "error").length}, warnings=${initialVscodeSnapshot.diagnostics.filter((d) => d.severity === "warning").length}, openTabs=${initialVscodeSnapshot.openTabs.length}.`
+    : "";
+
   return [
     `The user said: "${transcript}".`,
     ...(memoryContext ? [memoryContext] : []),
     "You are controlling the user's Mac through explicit tools only.",
     `Initial system snapshot context: ${JSON.stringify(initialSystemSnapshot)}.`,
     `Initial Chrome snapshot context: ${JSON.stringify(initialChromeSnapshot)}.`,
+    ...(vscodeContext ? [vscodeContext, "Use vscode_* tools for any VS Code operations. Call get_vscode_snapshot for full file lists and diagnostics."] : []),
     `Tracking summary context (recent app/space activity if user pressed Start Tracking): ${JSON.stringify(trackingSummary)}.`,
     "Treat the snapshots above as the most recent ground truth; if you need fresher state call get_system_snapshot or get_chrome_snapshot.",
     "Use the tracking summary only when the request references recent history (e.g. 'go back to what I was doing', 'reopen the last app'). If isTracking is false the summary will be empty - that is fine.",
@@ -841,7 +1065,7 @@ export function buildVoicePrompt(
     "Never close or delete Chrome tabs. Avoid destructive actions.",
     "Then execute what the user asked for using only the provided tools.",
     "If the request is ambiguous, make a reasonable interpretation and proceed.",
-    "If the user asks to split / tile / arrange N windows across a display, the windows must FILL that display: for each window call BOTH resize_window (to the cell size) AND move_window (to the cell origin). Do not just move windows at their current size, that leaves gaps and overlaps. If it asks for even splits, make sure the size for windows is truly split evenly so the user can see both properly. Use proper UX intution.",
+    "If the user asks to split / tile / arrange N windows across a display, the windows must FILL that display: for each window call BOTH resize_window (to the cell size) AND move_window (to the cell origin). Do not just move windows at their current size, that leaves gaps and overlaps. If it asks for even splits, make sure the size for windows is truly split evenly so the user can see both properly. Use proper UX intuition.",
     "If a tool call fails for one target (e.g. one window can't be raised on a Sidecar/iPad display), do not abort: continue with the remaining targets and mention any skipped items in the final summary.",
     "Finish with a short plain-English summary of what you did, including any per-target failures."
   ].join(" ");

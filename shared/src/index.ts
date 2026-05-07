@@ -10,6 +10,7 @@ export type FlowMode =
 export type SignalSource =
   | "system"
   | "chrome-extension"
+  | "vscode-extension"
   | "electron"
   | "swift-helper"
   | "user";
@@ -240,6 +241,134 @@ export type ChromeCommandResult<C extends ChromeCommand = ChromeCommand> =
   | ChromeCommandSuccessResult<C>
   | ChromeCommandFailureResult<C>;
 
+// ─── VS Code types ────────────────────────────────────────────────────────────
+
+export interface VscodeDiagnostic {
+  file: string;
+  severity: "error" | "warning" | "info";
+  message: string;
+  line: number;
+  column: number;
+}
+
+export interface VscodeGitStatus {
+  branch: string;
+  ahead: number;
+  behind: number;
+  modified: string[];
+  staged: string[];
+  untracked: string[];
+}
+
+export interface VscodeEditorGroup {
+  index: number;
+  activeFile: string | null;
+  openFiles: string[];
+}
+
+export interface VscodeTerminal {
+  name: string;
+  processId: number | null;
+}
+
+export interface VscodeSnapshot {
+  app: "vscode";
+  workspaceName: string | null;
+  workspaceRoot: string | null;
+  activeFile: string | null;
+  activeLanguageId: string | null;
+  activeLine: number | null;
+  activeColumn: number | null;
+  selectedText: string | null;
+  editorGroups: VscodeEditorGroup[];
+  openTabs: string[];
+  diagnostics: VscodeDiagnostic[];
+  git: VscodeGitStatus | null;
+  terminals: VscodeTerminal[];
+  capturedAt: string;
+}
+
+export type VscodeCommand =
+  | "vscode.file.open"
+  | "vscode.text.search"
+  | "vscode.terminal.run"
+  | "vscode.command.execute"
+  | "vscode.editor.split"
+  | "vscode.panel.focus"
+  | "vscode.symbol.search";
+
+export interface VscodeCommandPayloadMap {
+  "vscode.file.open": {
+    path: string;
+    line?: number;
+    column?: number;
+    preview?: boolean;
+  };
+  "vscode.text.search": {
+    query: string;
+    caseSensitive?: boolean;
+    includePattern?: string;
+    excludePattern?: string;
+  };
+  "vscode.terminal.run": {
+    command: string;
+    terminalName?: string;
+    cwd?: string;
+  };
+  "vscode.command.execute": {
+    commandId: string;
+    args?: unknown[];
+  };
+  "vscode.editor.split": {
+    direction: "right" | "down";
+  };
+  "vscode.panel.focus": {
+    panel: "terminal" | "problems" | "output" | "explorer" | "source-control";
+  };
+  "vscode.symbol.search": {
+    query: string;
+  };
+}
+
+export interface VscodeCommandResultMap {
+  "vscode.file.open": { opened: string; line?: number };
+  "vscode.text.search": { matches: Array<{ file: string; line: number; preview: string }> };
+  "vscode.terminal.run": { terminalName: string; sent: string };
+  "vscode.command.execute": { commandId: string; executed: true };
+  "vscode.editor.split": { direction: string };
+  "vscode.panel.focus": { panel: string };
+  "vscode.symbol.search": { symbols: Array<{ name: string; file: string; line: number; kind: string }> };
+}
+
+export interface VscodeCommandRequest<C extends VscodeCommand = VscodeCommand> {
+  requestId: string;
+  command: C;
+  payload: VscodeCommandPayloadMap[C];
+  issuedAt: string;
+}
+
+export interface VscodeCommandSuccessResult<C extends VscodeCommand = VscodeCommand> {
+  requestId: string;
+  command: C;
+  ok: true;
+  result: VscodeCommandResultMap[C];
+  completedAt: string;
+}
+
+export interface VscodeCommandFailureResult<C extends VscodeCommand = VscodeCommand> {
+  requestId: string;
+  command: C;
+  ok: false;
+  error: { code: string; message: string };
+  completedAt: string;
+}
+
+export type VscodeCommandResult<C extends VscodeCommand = VscodeCommand> =
+  | VscodeCommandSuccessResult<C>
+  | VscodeCommandFailureResult<C>;
+
+// ─── Realtime messages ────────────────────────────────────────────────────────
+
 export type RealtimeMessage =
   | {
       type: "extension.handshake";
@@ -288,6 +417,18 @@ export type RealtimeMessage =
   | {
       type: "chrome.command.result";
       payload: ChromeCommandResult;
+    }
+  | {
+      type: "vscode.snapshot";
+      payload: VscodeSnapshot;
+    }
+  | {
+      type: "vscode.command.request";
+      payload: VscodeCommandRequest;
+    }
+  | {
+      type: "vscode.command.result";
+      payload: VscodeCommandResult;
     };
 
 export const demoTaskState: TaskState = {

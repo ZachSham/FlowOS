@@ -1,0 +1,53 @@
+{
+  "name": "flowos-vscode",
+  "displayName": "FlowOS",
+  "description": "FlowOS VS Code integration — voice-controlled window management and AI productivity tools",
+  "version": "0.2.0",
+  "publisher": "flowos",
+  "private": true,
+  "engines": { "vscode": "^1.85.0" },
+  "activationEvents": ["onStartupFinished"],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "flowos.pushSnapshot",
+        "title": "FlowOS: Sync workspace state"
+      },
+      {
+        "command": "flowos.reconnect",
+        "title": "FlowOS: Reconnect to FlowOS"
+      }
+    ],
+    "configuration": {
+      "title": "FlowOS",
+      "properties": {
+        "flowos.token": {
+          "type": "string",
+          "default": "",
+          "description": "Optional auth token matching FLOWOS_EXTENSION_TOKEN in .env"
+        },
+        "flowos.port": {
+          "type": "number",
+          "default": 7331,
+          "description": "WebSocket port matching FLOWOS_WS_PORT in .env"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --outfile=dist/extension.js",
+    "watch": "esbuild src/extension.ts --bundle --format=cjs --platform=node --external:vscode --outfile=dist/extension.js --watch",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "ws": "^8.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.1",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.14",
+    "esbuild": "^0.25.3",
+    "typescript": "^5.8.3"
+  }
+}

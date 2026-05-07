@@ -13,6 +13,10 @@ import {
   type ChromeCommandPayloadMap,
   type ChromeCommandResultMap,
   type ChromeSnapshot,
+  type VscodeCommand,
+  type VscodeCommandPayloadMap,
+  type VscodeCommandResultMap,
+  type VscodeSnapshot,
   type Suggestion,
   type TaskState,
   type TaskSignal
@@ -53,6 +57,7 @@ let chromeEditor: ChromeEditor | null = null;
 let chromeHistoryStore: ChromeHistoryStore | null = null;
 let persistentMemoryStore: PersistentMemoryStore | null = null;
 let latestChromeSnapshot: ChromeSnapshot | null = null;
+let latestVscodeSnapshot: VscodeSnapshot | null = null;
 let swiftHelperStatus: SwiftHelperStatus = {
   connected: false,
   transport: "stdio",
@@ -90,6 +95,9 @@ async function bootstrap() {
       void chromeHistoryStore?.append(snapshot);
       refreshTaskStateFromSignals();
       broadcastStateUpdate();
+    },
+    onVscodeSnapshot: (snapshot) => {
+      latestVscodeSnapshot = snapshot;
     }
   });
 
@@ -116,7 +124,9 @@ async function bootstrap() {
     bridge: nativeHelperBridge,
     trackingSession,
     getChromeSnapshot: () => latestChromeSnapshot,
+    getVscodeSnapshot: () => latestVscodeSnapshot,
     runChromeCommand,
+    runVscodeCommand,
     getMemory: () => persistentMemoryStore?.getSnapshot().recentEntries ?? [],
     saveLayout: (name, mode, windows) => {
       if (!db) throw new Error("Database not initialized");
@@ -536,6 +546,14 @@ async function runChromeCommand<C extends ChromeCommand>(
   }
 
   return result;
+}
+
+async function runVscodeCommand<C extends VscodeCommand>(
+  command: C,
+  payload: VscodeCommandPayloadMap[C]
+): Promise<VscodeCommandResultMap[C]> {
+  if (!realtimeServer) throw new Error("Realtime server not initialized");
+  return realtimeServer.requestVscodeCommand(command, payload);
 }
 
 function refreshTaskStateFromSignals() {
