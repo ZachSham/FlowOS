@@ -210,6 +210,76 @@ describe("OpenAIFlowOrchestrator.runVoiceCommand", () => {
   });
 });
 
+describe("tile_windows tool math", () => {
+  it("computes correct 2-column grid for 4 windows", async () => {
+    const mockBridge = makeMockBridge();
+    const mockSession = makeMockSession();
+    const calls: Array<{ windowId: string; frame: unknown }> = [];
+
+    vi.spyOn(mockBridge, "request").mockImplementation(async (method, params) => {
+      if (method === "window.setFrame") {
+        calls.push({ windowId: (params as Record<string, unknown>).windowId as string, frame: params });
+      }
+      return { applied: true, details: [], warnings: [] };
+    });
+
+    const orc = new OpenAIFlowOrchestrator({ bridge: mockBridge, trackingSession: mockSession });
+
+    process.env["OPENAI_API_KEY"] = "test-key";
+    const globalThis_ = globalThis as unknown as { fetch?: unknown };
+    const originalFetch = globalThis_.fetch;
+    // First call returns tile_windows tool use; second call ends the loop
+    let callCount = 0;
+    globalThis_.fetch = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{
+              message: {
+                content: null,
+                tool_calls: [{
+                  id: "t1",
+                  type: "function",
+                  function: {
+                    name: "tile_windows",
+                    arguments: JSON.stringify({
+                      display: { id: "1", x: 0, y: 0, width: 1920, height: 1080 },
+                      windowIds: ["ax:1:0", "ax:2:0", "ax:3:0", "ax:4:0"],
+                      columns: 2
+                    })
+                  }
+                }]
+              },
+              finish_reason: "tool_calls"
+            }]
+          })
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: "Done", tool_calls: undefined }, finish_reason: "stop" }]
+        })
+      };
+    };
+
+    await orc.runVoiceCommand("tile 4 windows in a 2-column grid");
+    globalThis_.fetch = originalFetch;
+
+    expect(calls).toHaveLength(4);
+    // Window 0: top-left (col=0, row=0)
+    expect(calls[0]).toMatchObject({ windowId: "ax:1:0", frame: expect.objectContaining({ x: 0, y: 0, width: 960, height: 540 }) });
+    // Window 1: top-right (col=1, row=0)
+    expect(calls[1]).toMatchObject({ windowId: "ax:2:0", frame: expect.objectContaining({ x: 960, y: 0, width: 960, height: 540 }) });
+    // Window 2: bottom-left (col=0, row=1)
+    expect(calls[2]).toMatchObject({ windowId: "ax:3:0", frame: expect.objectContaining({ x: 0, y: 540, width: 960, height: 540 }) });
+    // Window 3: bottom-right (col=1, row=1)
+    expect(calls[3]).toMatchObject({ windowId: "ax:4:0", frame: expect.objectContaining({ x: 960, y: 540, width: 960, height: 540 }) });
+  });
+});
+
 describe("TrackingSession.stop", () => {
   it("sets isTracking to false", async () => {
     const { TrackingSession } = await import("./trackingSession.js");

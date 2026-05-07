@@ -437,6 +437,46 @@ const TOOL_DEFINITIONS = [
       description: "List all saved layouts. Returns id, name, mode, and createdAt for each.",
       parameters: { type: "object", properties: {}, additionalProperties: false }
     }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "tile_windows",
+      description:
+        "Tile N windows in a grid on a display. Computes cell sizes from the display frame and column count — no LLM math needed. Use this for 3+ windows; for exactly 2 use split_two_windows instead.",
+      parameters: {
+        type: "object",
+        properties: {
+          display: {
+            type: "object",
+            description: "Target display frame from get_system_snapshot. Use visibleX/visibleY/visibleWidth/visibleHeight for the usable area.",
+            properties: {
+              id: { type: "string" },
+              x: { type: "number" },
+              y: { type: "number" },
+              width: { type: "number" },
+              height: { type: "number" }
+            },
+            required: ["id", "x", "y", "width", "height"],
+            additionalProperties: false
+          },
+          windowIds: {
+            type: "array",
+            description: "Window IDs to tile, in left-to-right, top-to-bottom order.",
+            items: { type: "string" },
+            minItems: 2
+          },
+          columns: {
+            type: "number",
+            description: "Number of columns in the grid. Rows are computed automatically."
+          },
+          gap: { type: "number", description: "Pixels of gap between windows. Defaults to 0." },
+          margin: { type: "number", description: "Pixels inset from display edges. Defaults to 0." }
+        },
+        required: ["display", "windowIds", "columns"],
+        additionalProperties: false
+      }
+    }
   }
 ];
 
@@ -705,6 +745,14 @@ export class OpenAIFlowOrchestrator {
       case "list_layouts": {
         if (!this.listLayouts) return { ok: false, error: "Layout storage is not configured." };
         return { layouts: this.listLayouts() };
+      }
+      case "tile_windows": {
+        const display = readDisplay(input.display, "display");
+        const windowIds = readStringArray(input.windowIds, "windowIds");
+        const columns = readNumber(input.columns, "columns");
+        const gap = readOptionalNumber(input.gap, "gap") ?? 0;
+        const margin = readOptionalNumber(input.margin, "margin") ?? 0;
+        return applyTileLayout(windowEditor, { display, windowIds, columns, gap, margin });
       }
       default:
         throw new Error(`Unsupported tool: ${name}`);
@@ -1035,4 +1083,51 @@ function isSystemSnapshot(value: unknown): value is SystemSnapshot {
       "windows" in value &&
       "displays" in value
   );
+}
+
+function readStringArray(value: unknown, label: string): string[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${label} must be a non-empty array`);
+  }
+  return value.map((entry, index) => readString(entry, `${label}[${index}]`));
+}
+
+async function applyTileLayout(
+  windowEditor: ReturnType<typeof createWindowEditor>,
+  options: {
+    display: { id: string; x: number; y: number; width: number; height: number };
+    windowIds: string[];
+    columns: number;
+    gap: number;
+    margin: number;
+  }
+): Promise<unknown> {
+  const { display, windowIds, columns, gap, margin } = options;
+  const cols = Math.max(1, Math.floor(columns));
+  const rows = Math.ceil(windowIds.length / cols);
+  const cellW = (display.width - margin * 2 - gap * (cols - 1)) / cols;
+  const cellH = (display.height - margin * 2 - gap * (rows - 1)) / rows;
+
+  const results: unknown[] = [];
+  for (let i = 0; i < windowIds.length; i++) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = display.x + margin + col * (cellW + gap);
+    const y = display.y + margin + row * (cellH + gap);
+    const windowId = windowIds[i];
+    if (!windowId) continue;
+    try {
+      const result = await windowEditor.setFrame(windowId, {
+        x: Math.round(x),
+        y: Math.round(y),
+        width: Math.round(cellW),
+        height: Math.round(cellH)
+      });
+      results.push({ windowId, applied: true, result });
+    } catch (err) {
+      results.push({ windowId, applied: false, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  const anySucceeded = results.some((r) => !("error" in (r as object)));
+  return { ok: anySucceeded, tiled: results };
 }
