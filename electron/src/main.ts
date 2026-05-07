@@ -7,6 +7,7 @@ import { isLocalSttConfigured } from "./services/localSttConfig.js";
 import { transcribeWebmAudio } from "./services/localStt.js";
 import { saveLayout, listLayouts, getLayout, deleteLayout } from "./services/layoutStore.js";
 import { recordFocusEvent, upsertDailyStat, getWeeklyRollup, getDailyStats } from "./services/analyticsStore.js";
+import { createContextTriggerService, type ContextTriggerService } from "./services/contextTriggerService.js";
 import {
   demoSuggestions,
   demoTaskState,
@@ -69,6 +70,7 @@ let db: ReturnType<typeof ensureDatabase> | null = null;
 let activeSessionId: string | null = null;
 let activeFlowMode: "coding" | "research" | "auto" | null = null;
 let trackingStartedAt: number | null = null;
+let triggerService: ContextTriggerService | null = null;
 let lastFlowRun: FlowRunResult | null = null;
 let flowModeStatus: "idle" | "running" | "completed" | "failed" = "idle";
 const GLOBAL_MIC_SHORTCUT = "CommandOrControl+Shift+K";
@@ -115,12 +117,28 @@ async function bootstrap() {
   observationService = await startElectronObservationService({ trackingSession });
   nativeHelperBridge = await startSwiftHelperBridge();
   swiftHelperStatus = nativeHelperBridge.getStatus();
+
+  triggerService = createContextTriggerService({
+    debounceMs: 8000,
+    onSuggestion: (suggestion) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("trigger:suggestion", suggestion);
+      }
+    },
+  });
+
   nativeHelperBridge.onEvent((event) => {
     if (event.event === "helper.ready") {
       swiftHelperStatus = nativeHelperBridge?.getStatus() ?? swiftHelperStatus;
     }
 
     trackingSession.record(event);
+
+    if (event.event === "app.activated" && trackingSession.getState().isTracking) {
+      const bundleId = (event.payload as { app?: { bundleId?: string } }).app?.bundleId ?? "";
+      triggerService?.onAppActivated(bundleId, trackingSession.getState().recentEvents);
+    }
   });
   nativeHelperTelemetry = await startNativeHelperTelemetry(nativeHelperBridge);
   const flowOrchestrator = new OpenAIFlowOrchestrator({
@@ -256,6 +274,7 @@ async function bootstrap() {
       endSession(db, activeSessionId);
       activeSessionId = null;
       activeFlowMode = null;
+      triggerService?.setActiveMode(null);
     }
     refreshMenuBar();
     return result;
@@ -265,11 +284,12 @@ async function bootstrap() {
     const requested = payload?.mode;
     const mode: FlowMode = requested === "research" || requested === "auto" ? requested : "coding";
     const result = await runEnterFlowMode(mode);
-    if (result.ok && db && activeSessionId) {
+    if (result.ok) {
       activeFlowMode = mode;
-      recordFocusEvent(db, { sessionId: activeSessionId, kind: "mode_enter", app: null, payload: JSON.stringify({ mode }) });
-    } else if (result.ok) {
-      activeFlowMode = mode;
+      triggerService?.setActiveMode(mode);
+      if (db && activeSessionId) {
+        recordFocusEvent(db, { sessionId: activeSessionId, kind: "mode_enter", app: null, payload: JSON.stringify({ mode }) });
+      }
     }
     return result;
   });
@@ -568,6 +588,8 @@ app.on("before-quit", () => {
     activeFlowMode = null;
     trackingStartedAt = null;
   }
+  triggerService?.dispose();
+  triggerService = null;
   globalShortcut.unregisterAll();
   menuBarTray?.destroy();
   menuBarTray = null;
