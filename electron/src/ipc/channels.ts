@@ -9,5 +9,8 @@ export const ipcChannels = {
   runVoiceCommand: "voice:run-command",
   transcribeAudio: "voice:transcribe",
   showWindow: "window:show",
-  hideWindow: "window:hide"
+  hideWindow: "window:hide",
+  saveLayout: "layout:save",
+  listLayouts: "layout:list",
+  deleteLayout: "layout:delete"
 } as const;

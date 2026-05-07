@@ -3,6 +3,7 @@ import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureDatabase } from "@flowos/db";
 import { startSession, endSession } from "./services/sessionStore.js";
+import { saveLayout, listLayouts, getLayout, deleteLayout } from "./services/layoutStore.js";
 import {
   demoSuggestions,
   demoTaskState,
@@ -114,7 +115,19 @@ async function bootstrap() {
     trackingSession,
     getChromeSnapshot: () => latestChromeSnapshot,
     runChromeCommand,
-    getMemory: () => persistentMemoryStore?.getSnapshot().recentEntries ?? []
+    getMemory: () => persistentMemoryStore?.getSnapshot().recentEntries ?? [],
+    saveLayout: (name, mode, windows) => {
+      if (!db) throw new Error("Database not initialized");
+      return saveLayout(db, name, mode, windows as Parameters<typeof saveLayout>[3]);
+    },
+    listLayouts: () => {
+      if (!db) return [];
+      return listLayouts(db);
+    },
+    getLayout: (id) => {
+      if (!db) return undefined;
+      return getLayout(db, id);
+    }
   });
 
   const runEnterFlowMode = async (mode: FlowMode) => {
@@ -271,6 +284,22 @@ async function bootstrap() {
 
   ipcMain.handle(ipcChannels.runChromeCommand, async (_event, request: ChromeCommandInvocation) => {
     return await runChromeCommand(request.command, request.payload);
+  });
+
+  ipcMain.handle(ipcChannels.listLayouts, () => {
+    if (!db) return [];
+    return listLayouts(db);
+  });
+
+  ipcMain.handle(ipcChannels.saveLayout, (_event, payload: { name: string; mode: string; windows: unknown[] }) => {
+    if (!db) throw new Error("Database not initialized");
+    if (!Array.isArray(payload.windows)) throw new Error("windows must be an array");
+    return saveLayout(db, payload.name, payload.mode, payload.windows as Parameters<typeof saveLayout>[3]);
+  });
+
+  ipcMain.handle(ipcChannels.deleteLayout, (_event, id: string) => {
+    if (!db) throw new Error("Database not initialized");
+    deleteLayout(db, id);
   });
 
   function ensureBackgroundWindow() {

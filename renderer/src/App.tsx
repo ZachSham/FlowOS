@@ -31,6 +31,13 @@ type FlowRunResult = {
   errorCode?: "tracking-required";
 };
 
+type SavedLayout = {
+  id: string;
+  name: string;
+  mode: string;
+  createdAt: string;
+};
+
 type BootstrapState = {
   websocketPort: number;
   swiftHelper: {
@@ -57,6 +64,8 @@ declare global {
       transcribeAudio: (audioData: Uint8Array) => Promise<string>;
       showWindow: () => Promise<void>;
       hideWindow: () => Promise<void>;
+      listLayouts: () => Promise<SavedLayout[]>;
+      deleteLayout: (id: string) => Promise<void>;
     };
   }
 }
@@ -85,6 +94,7 @@ export function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [layouts, setLayouts] = useState<SavedLayout[]>([]);
   useEffect(() => {
     if (!window.flowos) {
       setErrorMessage("Electron preload bridge is unavailable in this window.");
@@ -100,6 +110,8 @@ export function App() {
       .catch((error) => {
         setErrorMessage(error instanceof Error ? error.message : String(error));
       });
+
+    void window.flowos.listLayouts().then(setLayouts).catch(() => {});
   }, []);
 
   const lastEvent = bootstrap.tracking.recentEvents[0] ?? null;
@@ -398,6 +410,42 @@ export function App() {
           {bootstrap.tracking.isTracking && <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />}
         </button>
       </div>
+
+      {/* ── Saved Layouts ── */}
+      {layouts.length > 0 && (
+        <>
+          <div className="mx-3 h-px shrink-0 bg-white/[0.06]" />
+          <div className="shrink-0 px-3 py-3">
+            <div className="mb-2 px-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/25">Saved Layouts</div>
+            <div className="space-y-1">
+              {layouts.map((layout) => (
+                <div key={layout.id} className="flex items-center justify-between gap-2 rounded-xl bg-white/[0.04] px-3 py-2 ring-1 ring-white/[0.06]">
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => void handleVoiceTranscript(`recall layout ${layout.name}`)}
+                    className="min-w-0 flex-1 text-left disabled:opacity-40"
+                  >
+                    <div className="truncate text-[12px] font-medium">{layout.name}</div>
+                    <div className="text-[10px] text-white/30">{layout.mode}</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void window.flowos?.deleteLayout(layout.id)
+                        .then(() => setLayouts((prev) => prev.filter((l) => l.id !== layout.id)))
+                        .catch((err: unknown) => setErrorMessage(err instanceof Error ? err.message : String(err)));
+                    }}
+                    className="shrink-0 text-[11px] text-white/25 hover:text-red-400"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       <div className="mx-3 h-px shrink-0 bg-white/[0.06]" />
 

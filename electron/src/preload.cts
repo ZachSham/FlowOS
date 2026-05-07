@@ -23,7 +23,10 @@ const channels = {
   runVoiceCommand: "voice:run-command",
   transcribeAudio: "voice:transcribe",
   showWindow: "window:show",
-  hideWindow: "window:hide"
+  hideWindow: "window:hide",
+  saveLayout: "layout:save",
+  listLayouts: "layout:list",
+  deleteLayout: "layout:delete"
 } as const;
 
 try {
@@ -60,7 +63,11 @@ try {
     transcribeAudio: (audioData: Uint8Array) =>
       ipcRenderer.invoke(channels.transcribeAudio, audioData) as Promise<string>,
     showWindow: () => ipcRenderer.invoke(channels.showWindow),
-    hideWindow: () => ipcRenderer.invoke(channels.hideWindow)
+    hideWindow: () => ipcRenderer.invoke(channels.hideWindow),
+    listLayouts: () => ipcRenderer.invoke(channels.listLayouts),
+    saveLayout: (payload: { name: string; mode: string; windows: unknown[] }) =>
+      ipcRenderer.invoke(channels.saveLayout, payload),
+    deleteLayout: (id: string) => ipcRenderer.invoke(channels.deleteLayout, id)
   });
 } catch (error) {
   console.error("[flowos][preload] failed to expose bridge", error);

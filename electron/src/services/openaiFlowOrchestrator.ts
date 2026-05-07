@@ -31,6 +31,9 @@ interface FlowOrchestratorOptions {
   getChromeSnapshot?: () => ChromeSnapshot | null;
   runChromeCommand?: RunChromeCommand;
   getMemory?: () => MemoryEntry[];
+  saveLayout?: (name: string, mode: string, windows: unknown[]) => unknown;
+  listLayouts?: () => unknown[];
+  getLayout?: (id: string) => unknown;
 }
 
 interface FlowToolUse {
@@ -376,6 +379,64 @@ const TOOL_DEFINITIONS = [
         additionalProperties: false
       }
     }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "save_layout",
+      description:
+        "Save the current window arrangement as a named layout for future recall. Call get_system_snapshot first to get current positions, then call this tool with the window frames you want to persist. The user can recall this layout later by name.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Short memorable name for this layout, e.g. 'My Coding Setup'" },
+          mode: { type: "string", enum: ["coding", "research", "auto"], description: "Flow mode this layout is associated with" },
+          windows: {
+            type: "array",
+            description: "Window frames to save. Each entry must have windowId, appName, x, y, width, height.",
+            items: {
+              type: "object",
+              properties: {
+                windowId: { type: "string" },
+                appName: { type: "string" },
+                x: { type: "number" },
+                y: { type: "number" },
+                width: { type: "number" },
+                height: { type: "number" }
+              },
+              required: ["windowId", "appName", "x", "y", "width", "height"],
+              additionalProperties: false
+            }
+          }
+        },
+        required: ["name", "mode", "windows"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "recall_layout",
+      description:
+        "Restore a previously saved layout by its id. Use list_layouts to find the id first if the user refers to it by name.",
+      parameters: {
+        type: "object",
+        properties: {
+          layoutId: { type: "string", description: "The id of the layout to restore." }
+        },
+        required: ["layoutId"],
+        additionalProperties: false
+      }
+    }
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "list_layouts",
+      description: "List all saved layouts. Returns id, name, mode, and createdAt for each.",
+      parameters: { type: "object", properties: {}, additionalProperties: false }
+    }
   }
 ];
 
@@ -385,6 +446,9 @@ export class OpenAIFlowOrchestrator {
   private readonly getChromeSnapshot?: () => ChromeSnapshot | null;
   private readonly runChromeCommand?: RunChromeCommand;
   private readonly getMemory?: () => MemoryEntry[];
+  private readonly saveLayout?: (name: string, mode: string, windows: unknown[]) => unknown;
+  private readonly listLayouts?: () => unknown[];
+  private readonly getLayout?: (id: string) => unknown;
 
   constructor(options: FlowOrchestratorOptions) {
     this.bridge = options.bridge;
@@ -392,6 +456,9 @@ export class OpenAIFlowOrchestrator {
     this.getChromeSnapshot = options.getChromeSnapshot;
     this.runChromeCommand = options.runChromeCommand;
     this.getMemory = options.getMemory;
+    this.saveLayout = options.saveLayout;
+    this.listLayouts = options.listLayouts;
+    this.getLayout = options.getLayout;
   }
 
   async enterFlowMode(mode: FlowMode): Promise<FlowRunResult> {
@@ -610,6 +677,35 @@ export class OpenAIFlowOrchestrator {
             ...(typeof input.windowId === "number" ? { windowId: input.windowId } : {})
           }
         );
+      case "save_layout": {
+        const name = readString(input.name, "name");
+        const mode = readString(input.mode, "mode");
+        const windows = Array.isArray(input.windows) ? input.windows : [];
+        if (!this.saveLayout) return { ok: false, error: "Layout storage is not configured." };
+        return this.saveLayout(name, mode, windows);
+      }
+      case "recall_layout": {
+        const layoutId = readString(input.layoutId, "layoutId");
+        if (!this.getLayout) return { ok: false, error: "Layout storage is not configured." };
+        const layout = this.getLayout(layoutId) as { config?: Array<{ windowId: string; x: number; y: number; width: number; height: number }> } | undefined;
+        if (!layout) return { ok: false, error: `No layout found with id ${layoutId}` };
+        const frames = layout.config ?? [];
+        const results: unknown[] = [];
+        for (const frame of frames) {
+          try {
+            const result = await windowEditor.setFrame(frame.windowId, { x: frame.x, y: frame.y, width: frame.width, height: frame.height });
+            results.push({ windowId: frame.windowId, result });
+          } catch (err) {
+            results.push({ windowId: frame.windowId, error: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        const anySucceeded = results.some((r) => !("error" in (r as object)));
+        return { ok: anySucceeded, applied: results };
+      }
+      case "list_layouts": {
+        if (!this.listLayouts) return { ok: false, error: "Layout storage is not configured." };
+        return { layouts: this.listLayouts() };
+      }
       default:
         throw new Error(`Unsupported tool: ${name}`);
     }
