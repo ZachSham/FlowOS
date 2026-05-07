@@ -11,6 +11,7 @@ import { applySplitLayout } from "../actions/splitLayout.js";
 import { createWindowEditor } from "../actions/windowEditor.js";
 import type { NativeHelperBridge } from "../bridge/swiftHelper.js";
 import type { TrackingSession } from "./trackingSession.js";
+import { analyzeWorkStyle, buildAnalysisContext } from "./workStyleAnalyzer.js";
 
 type RunChromeCommand = <C extends ChromeCommand>(
   command: C,
@@ -525,10 +526,14 @@ export class OpenAIFlowOrchestrator {
     const initialSystemSnapshot = await this.safeSystemSnapshot();
     const initialChromeSnapshot = this.safeChromeSnapshot();
     const memoryEntries = this.getMemory?.() ?? [];
+    const workAnalysis = analyzeWorkStyle(
+      trackingSummary.recentEvents,
+      initialSystemSnapshot?.runningApps ?? []
+    );
     return this.runLoop({
       apiKey: apiKey!,
       model: model!,
-      initialPrompt: buildFlowModePrompt(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot, memoryEntries),
+      initialPrompt: buildFlowModePrompt(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot, memoryEntries, workAnalysis),
       emptySummary: `Flow mode (${mode}) finished without a final summary.`
     });
   }
@@ -867,56 +872,141 @@ function flowModeBaseInstructions(
   ];
 }
 
-const CODING_MODE_INSTRUCTIONS: string[] = [
-  "Coding mode goal: set up a focused two-display coding environment.",
-  "Focus apps: an IDE AND a coding support app (GitHub Desktop, Codex, Terminal etc.",
-  "On the PRIMARY display: use split_two_windows to place the IDE and the coding support app side-by-side, filling the entire visible rect of that display.",
-  "If a SECOND display exists: move the Google Chrome window or something relevant to that display, each sized to fill its visible rect (move_window + resize_window, or set_frame); keep all Chrome tabs intact.",
-  "If NO second display exists: hide Chrome with hide_app instead of moving it, so the IDE+support split stays clean.",
-  "Minimize or hide every other app window so only the IDE, the coding support app, and Chrome (on display 2 if present) remain visible.",
-  "Do not relaunch apps that are already running; only act on apps present in the system snapshot."
-];
+function buildCodingModeInstructions(analysis: import("./workStyleAnalyzer.js").WorkStyleAnalysis): string[] {
+  const primary = analysis.primaryApp;
+  const secondary = analysis.secondaryApp;
+  const distractors = analysis.appsToHide.filter((a) => a.role === "distractor");
+  const background = analysis.appsToMinimize;
 
-const RESEARCH_MODE_INSTRUCTIONS: string[] = [
-  "Research mode goal: set up a focused two-display reading + writing environment.",
-  "Focus apps: Google Chrome for sources, AND a writing companion (Notion, Apple Notes etc).",
-  "On the PRIMARY display: use split_two_windows to place Chrome and the writing companion side-by-side, filling the entire visible rect of that display.",
-  "On the SECOND display (if it exists): place exactly one grounding app, sized to fill that display's visible rect:  Spotify, Apple Music or leave the second display empty - do not launch anything new and do not move other apps there.",
-  "If NO second display exists, do not place a grounding app at all.",
-  "Minimize or hide every other app window (Slack, Discord, Mail, Messages, social apps, IDEs, terminals, etc.) so only Chrome, the writing companion, and the optional grounding app remain visible.",
-  "Do not relaunch apps that are already running; only act on apps present in the system snapshot."
-];
+  const primaryDesc = primary
+    ? `${primary.name} [bundleId: ${primary.bundleId}]`
+    : "the IDE (look for an IDE-type app in the snapshot)";
+  const secondaryDesc = secondary
+    ? `${secondary.name} [bundleId: ${secondary.bundleId}]`
+    : "a coding support app such as Terminal, GitHub Desktop, or Codex";
 
-const AUTO_MODE_INSTRUCTIONS: string[] = [
-  "Auto Flow State goal: infer what the user is trying to focus on from the tracking summary above and configure their displays accordingly.",
-  "Use the tracking summary as the PRIMARY signal: examine recentEvents (most recent first) and countsByEvent. Frequent app.activated / app.launched events for the same app cluster reveal current intent.",
-  "Coding signal indicators: repeated activations of an IDE (Cursor com.todesktop.230313mzl4w4u92, VS Code com.microsoft.VSCode, Xcode com.apple.dt.Xcode), Terminal (com.apple.Terminal), GitHub Desktop (com.github.GitHubClient), or Codex (com.openai.codex). If coding signals dominate, follow the CODING playbook below.",
-  "Research / writing signal indicators: repeated activations of Google Chrome (com.google.Chrome) interleaved with a notes app (Apple Notes com.apple.Notes, Bear net.shinyfrog.bear, or Obsidian md.obsidian), or a heavy Chrome tab list with reading-style URLs in the Chrome snapshot. If research signals dominate, follow the RESEARCH playbook below.",
-  "If signals are mixed or weak, pick the playbook whose focus apps the user has touched most recently and proceed; do not ask the user.",
-  "CODING playbook: on the PRIMARY display, split_two_windows between the IDE and a coding support app (GitHub Desktop preferred, otherwise Codex, otherwise Terminal), filling the visible rect. If a SECOND display exists, move all Chrome windows there sized to fill its visible rect; if no second display, hide_app Chrome. Minimize or hide every other window. Never close Chrome tabs.",
-  "RESEARCH playbook: on the PRIMARY display, split_two_windows between Chrome and a writing companion (Apple Notes preferred, otherwise Bear, otherwise Obsidian), filling the visible rect. If a SECOND display exists, place exactly one grounding app (Spotify com.spotify.client preferred, otherwise Apple Music com.apple.Music) sized to fill it - but only if it is currently running; never launch a new grounding app. Minimize or hide every other window.",
-  "Do not relaunch apps that are already running; only act on apps present in the system snapshot. If a chosen focus app is not running, fall back to the next preference in the priority list.",
-  "In the final summary, briefly state which playbook you chose and the top 1-2 tracking signals that drove the decision."
-];
+  const instructions: string[] = [
+    "Coding mode goal: set up a focused coding environment with exactly the apps the user has been using.",
+    `Primary focus app: ${primaryDesc}. Secondary focus app: ${secondaryDesc}.`,
+    "On the PRIMARY display: use split_two_windows to place the primary and secondary apps side-by-side, filling the entire visible rect of that display.",
+    "If a SECOND display exists: move any browser window (Chrome/Firefox/Safari/Arc) to that display sized to fill its visible rect; keep all tabs intact. If NO second display: hide the browser with hide_app.",
+  ];
+
+  if (distractors.length > 0) {
+    const names = distractors.map((a) => `${a.name} [${a.bundleId}]`).join(", ");
+    instructions.push(`Use hide_app on these distractor apps (communication/social/media): ${names}.`);
+  } else {
+    instructions.push("Use hide_app on any communication apps (Slack, Discord, Mail, Messages) present in the snapshot.");
+  }
+
+  if (background.length > 0) {
+    const names = background.map((a) => `${a.name} [${a.bundleId}]`).join(", ");
+    instructions.push(`Minimize (not hide) these background apps: ${names}.`);
+  }
+
+  instructions.push(
+    "Do not relaunch apps that are already running; only act on apps present in the system snapshot.",
+    "Never close Chrome tabs."
+  );
+
+  return instructions;
+}
+
+function buildResearchModeInstructions(analysis: import("./workStyleAnalyzer.js").WorkStyleAnalysis): string[] {
+  const primary = analysis.primaryApp;
+  const secondary = analysis.secondaryApp;
+  const grounding = analysis.appsToHide.find((a) => a.role === "grounding");
+  const distractors = analysis.appsToHide.filter((a) => a.role === "distractor");
+  const background = analysis.appsToMinimize;
+
+  const primaryDesc = primary
+    ? `${primary.name} [bundleId: ${primary.bundleId}]`
+    : "Google Chrome (com.google.Chrome)";
+  const secondaryDesc = secondary
+    ? `${secondary.name} [bundleId: ${secondary.bundleId}]`
+    : "a writing/notes app such as Apple Notes, Bear, or Obsidian";
+
+  const instructions: string[] = [
+    "Research mode goal: set up a focused reading and writing environment.",
+    `Primary focus app: ${primaryDesc}. Secondary focus app: ${secondaryDesc}.`,
+    "On the PRIMARY display: use split_two_windows to place the primary and secondary apps side-by-side, filling the entire visible rect of that display.",
+  ];
+
+  if (grounding) {
+    instructions.push(`If a SECOND display exists: place ${grounding.name} [${grounding.bundleId}] there sized to fill its visible rect — only if it is currently running. If NO second display, minimize it instead.`);
+  } else {
+    instructions.push("If a SECOND display exists: it can stay empty or hold a music app (Spotify/Apple Music) if one is already running. Never launch a new app.");
+  }
+
+  if (distractors.length > 0) {
+    const names = distractors.map((a) => `${a.name} [${a.bundleId}]`).join(", ");
+    instructions.push(`Use hide_app on these distractor apps: ${names}.`);
+  } else {
+    instructions.push("Use hide_app on any IDE, terminal, and communication apps (Slack, Discord, Mail) present in the snapshot.");
+  }
+
+  if (background.length > 0) {
+    const names = background.map((a) => `${a.name} [${a.bundleId}]`).join(", ");
+    instructions.push(`Minimize (not hide) these background apps: ${names}.`);
+  }
+
+  instructions.push(
+    "Do not relaunch apps that are already running; only act on apps present in the system snapshot.",
+    "Never close Chrome tabs."
+  );
+
+  return instructions;
+}
+
+function buildAutoModeInstructions(analysis: import("./workStyleAnalyzer.js").WorkStyleAnalysis): string[] {
+  const analysisContext = buildAnalysisContext(analysis);
+
+  if (analysis.mode === "unclear") {
+    return [
+      analysisContext,
+      "Tracking data is insufficient to infer a clear mode. Look at the system snapshot, find the two most prominent running apps (by window size or frontmost), and split them on the primary display. Minimize everything else.",
+    ];
+  }
+
+  const playbook = analysis.mode === "research"
+    ? buildResearchModeInstructions(analysis)
+    : buildCodingModeInstructions(analysis); // covers "coding" and "mixed"
+
+  return [
+    analysisContext,
+    `Based on the analysis above, applying the ${analysis.mode === "research" ? "RESEARCH" : "CODING"} playbook.`,
+    ...playbook,
+    `In the final summary, state that you inferred ${analysis.mode} mode and mention the top signal(s): ${analysis.signals.slice(0, 2).join("; ")}.`,
+  ];
+}
 
 function buildFlowModePrompt(
   mode: FlowMode,
   trackingSummary: ReturnType<TrackingSession["getSummary"]>,
   initialSystemSnapshot: SystemSnapshot | null,
   initialChromeSnapshot: ChromeSnapshot | null,
-  memoryEntries: MemoryEntry[] = []
+  memoryEntries: MemoryEntry[] = [],
+  workAnalysis?: import("./workStyleAnalyzer.js").WorkStyleAnalysis
 ) {
   const base = flowModeBaseInstructions(mode, trackingSummary, initialSystemSnapshot, initialChromeSnapshot);
+
+  const analysis = workAnalysis ?? analyzeWorkStyle(
+    trackingSummary.recentEvents,
+    initialSystemSnapshot?.runningApps ?? []
+  );
+
   const modeSpecific =
     mode === "coding"
-      ? CODING_MODE_INSTRUCTIONS
+      ? buildCodingModeInstructions(analysis)
       : mode === "research"
-        ? RESEARCH_MODE_INSTRUCTIONS
-        : AUTO_MODE_INSTRUCTIONS;
+        ? buildResearchModeInstructions(analysis)
+        : buildAutoModeInstructions(analysis);
+
   const memoryContext = buildMemoryContext(memoryEntries);
   const memoryInstructions = memoryContext
     ? [memoryContext, "Use the above history to replicate successful layouts and prefer the same apps."]
     : [];
+
   return [...base, ...memoryInstructions, ...modeSpecific].join(" ");
 }
 
