@@ -61,6 +61,12 @@ CREATE TABLE IF NOT EXISTS licenses (
 `;
 
 export function ensureDatabase(dbPath = process.env.FLOWOS_DB_PATH ?? "./data/flowos.db") {
+  if (dbPath === ":memory:") {
+    const db = new Database(":memory:");
+    db.exec(baseSchemaSql);
+    return db;
+  }
+
   const absolutePath = resolve(dbPath);
   mkdirSync(dirname(absolutePath), { recursive: true });
 
