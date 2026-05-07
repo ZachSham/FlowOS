@@ -13,5 +13,10 @@ export const ipcChannels = {
   saveLayout: "layout:save",
   listLayouts: "layout:list",
   deleteLayout: "layout:delete",
-  recallLayout: "layout:recall"
+  recallLayout: "layout:recall",
+  analyticsWeekly: "analytics:weekly",
+  licenseGet: "license:get",
+  licenseActivate: "license:activate",
+  licenseDeactivate: "license:deactivate",
+  triggerSuggestion: "trigger:suggestion"
 } as const;

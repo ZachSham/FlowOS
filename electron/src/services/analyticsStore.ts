@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import type { Database } from "better-sqlite3";
+import Database from "better-sqlite3";
+
+type DB = InstanceType<typeof Database>;
 
 interface RecordEventInput {
   sessionId: string;
@@ -35,14 +37,14 @@ export interface WeeklyRollup {
   avgDailyFocusMins: number;
 }
 
-export function recordFocusEvent(db: Database, input: RecordEventInput): void {
+export function recordFocusEvent(db: DB, input: RecordEventInput): void {
   db.prepare(`
     INSERT INTO focus_events (id, session_id, kind, app, payload, occurred_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(randomUUID(), input.sessionId, input.kind, input.app, input.payload, new Date().toISOString());
 }
 
-export function upsertDailyStat(db: Database, date: string, input: DayInput): void {
+export function upsertDailyStat(db: DB, date: string, input: DayInput): void {
   db.prepare(`
     INSERT INTO daily_stats (date, total_focus_secs, coding_secs, research_secs, commands_run, sessions_count)
     VALUES (?, ?, ?, ?, ?, ?)
@@ -55,13 +57,13 @@ export function upsertDailyStat(db: Database, date: string, input: DayInput): vo
   `).run(date, input.totalFocusSecs, input.codingSecs, input.researchSecs, input.commandsRun, input.sessionsCount);
 }
 
-export function getDailyStats(db: Database, days = 7): DailyStat[] {
+export function getDailyStats(db: DB, days = 7): DailyStat[] {
   return db.prepare(
     "SELECT * FROM daily_stats ORDER BY date DESC LIMIT ?"
   ).all(days) as DailyStat[];
 }
 
-export function getWeeklyRollup(db: Database): WeeklyRollup {
+export function getWeeklyRollup(db: DB): WeeklyRollup {
   const rows = getDailyStats(db, 7);
   const totalFocusSecs = rows.reduce((s, r) => s + r.total_focus_secs, 0);
   const codingSecs     = rows.reduce((s, r) => s + r.coding_secs, 0);

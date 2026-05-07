@@ -6,6 +6,7 @@ import { startSession, endSession } from "./services/sessionStore.js";
 import { isLocalSttConfigured } from "./services/localSttConfig.js";
 import { transcribeWebmAudio } from "./services/localStt.js";
 import { saveLayout, listLayouts, getLayout, deleteLayout } from "./services/layoutStore.js";
+import { recordFocusEvent, upsertDailyStat, getWeeklyRollup, getDailyStats } from "./services/analyticsStore.js";
 import {
   demoSuggestions,
   demoTaskState,
@@ -66,6 +67,8 @@ let swiftHelperStatus: SwiftHelperStatus = {
 const trackingSession = new TrackingSession();
 let db: ReturnType<typeof ensureDatabase> | null = null;
 let activeSessionId: string | null = null;
+let activeFlowMode: "coding" | "research" | "auto" | null = null;
+let trackingStartedAt: number | null = null;
 let lastFlowRun: FlowRunResult | null = null;
 let flowModeStatus: "idle" | "running" | "completed" | "failed" = "idle";
 const GLOBAL_MIC_SHORTCUT = "CommandOrControl+Shift+K";
@@ -194,6 +197,7 @@ async function bootstrap() {
     const tracking = trackingSession.start();
     if (db && !activeSessionId) {
       activeSessionId = startSession(db, "general");
+      trackingStartedAt = Date.now();
     }
     refreshMenuBar();
     return tracking;
@@ -234,8 +238,24 @@ async function bootstrap() {
   ipcMain.handle(ipcChannels.stopTracking, () => {
     const result = trackingSession.stop();
     if (db && activeSessionId) {
+      if (activeSessionId && activeFlowMode) {
+        recordFocusEvent(db, { sessionId: activeSessionId, kind: "mode_exit", app: null, payload: null });
+      }
+      if (trackingStartedAt) {
+        const focusSecs = Math.round((Date.now() - trackingStartedAt) / 1000);
+        const date = new Date().toISOString().slice(0, 10);
+        upsertDailyStat(db, date, {
+          totalFocusSecs: focusSecs,
+          codingSecs: activeFlowMode === "coding" ? focusSecs : 0,
+          researchSecs: activeFlowMode === "research" ? focusSecs : 0,
+          commandsRun: 0,
+          sessionsCount: 1,
+        });
+        trackingStartedAt = null;
+      }
       endSession(db, activeSessionId);
       activeSessionId = null;
+      activeFlowMode = null;
     }
     refreshMenuBar();
     return result;
@@ -244,7 +264,14 @@ async function bootstrap() {
   ipcMain.handle(ipcChannels.enterFlowMode, async (_event, payload: { mode?: FlowMode } | undefined) => {
     const requested = payload?.mode;
     const mode: FlowMode = requested === "research" || requested === "auto" ? requested : "coding";
-    return await runEnterFlowMode(mode);
+    const result = await runEnterFlowMode(mode);
+    if (result.ok && db && activeSessionId) {
+      activeFlowMode = mode;
+      recordFocusEvent(db, { sessionId: activeSessionId, kind: "mode_enter", app: null, payload: JSON.stringify({ mode }) });
+    } else if (result.ok) {
+      activeFlowMode = mode;
+    }
+    return result;
   });
 
   ipcMain.handle(ipcChannels.runVoiceCommand, async (_event, transcript: string) => {
@@ -261,6 +288,10 @@ async function bootstrap() {
         toolResults: result.toolResults
       }
     );
+    if (result.ok && db && activeSessionId) {
+      recordFocusEvent(db, { sessionId: activeSessionId, kind: "command_run", app: null, payload: JSON.stringify({ transcript: transcript.slice(0, 100) }) });
+      upsertDailyStat(db, new Date().toISOString().slice(0, 10), { totalFocusSecs: 0, codingSecs: 0, researchSecs: 0, commandsRun: 1, sessionsCount: 0 });
+    }
     return result;
   });
 
@@ -326,6 +357,42 @@ async function bootstrap() {
     const layout = getLayout(db, id);
     if (!layout) throw new Error(`No layout found with id ${id}`);
     return flowOrchestrator.applyLayoutFrames(layout.config);
+  });
+
+  ipcMain.handle("analytics:weekly", () => {
+    if (!db) return null;
+    return {
+      rollup: getWeeklyRollup(db),
+      days: getDailyStats(db, 7),
+    };
+  });
+
+  ipcMain.handle("license:get", () => {
+    if (!db) return null;
+    return db.prepare("SELECT * FROM licenses LIMIT 1").get() ?? null;
+  });
+
+  ipcMain.handle("license:activate", async (_event, key: string) => {
+    if (!db) throw new Error("DB not ready");
+    const trimmed = key.trim();
+    if (!trimmed) throw new Error("License key is required");
+    const { validateLicenseKey, saveLicense } = await import("./services/licenseStore.js");
+    const result = await validateLicenseKey(trimmed);
+    if (!result.valid) throw new Error("Invalid license key");
+    const license = {
+      key: trimmed,
+      email: result.email ?? null,
+      plan: result.plan ?? "pro",
+      activated_at: new Date().toISOString(),
+      expires_at: result.expires_at ?? null,
+    };
+    saveLicense(db, license);
+    return license;
+  });
+
+  ipcMain.handle("license:deactivate", () => {
+    if (!db) return;
+    db.prepare("DELETE FROM licenses").run();
   });
 
   function ensureBackgroundWindow() {
@@ -482,8 +549,24 @@ app.on("activate", () => {
 
 app.on("before-quit", () => {
   if (db && activeSessionId) {
+    if (activeFlowMode) {
+      recordFocusEvent(db, { sessionId: activeSessionId, kind: "mode_exit", app: null, payload: null });
+    }
+    if (trackingStartedAt) {
+      const focusSecs = Math.round((Date.now() - trackingStartedAt) / 1000);
+      const date = new Date().toISOString().slice(0, 10);
+      upsertDailyStat(db, date, {
+        totalFocusSecs: focusSecs,
+        codingSecs: activeFlowMode === "coding" ? focusSecs : 0,
+        researchSecs: activeFlowMode === "research" ? focusSecs : 0,
+        commandsRun: 0,
+        sessionsCount: 1,
+      });
+    }
     endSession(db, activeSessionId);
     activeSessionId = null;
+    activeFlowMode = null;
+    trackingStartedAt = null;
   }
   globalShortcut.unregisterAll();
   menuBarTray?.destroy();

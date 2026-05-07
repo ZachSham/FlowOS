@@ -27,7 +27,12 @@ const channels = {
   saveLayout: "layout:save",
   listLayouts: "layout:list",
   deleteLayout: "layout:delete",
-  recallLayout: "layout:recall"
+  recallLayout: "layout:recall",
+  analyticsWeekly: "analytics:weekly",
+  licenseGet: "license:get",
+  licenseActivate: "license:activate",
+  licenseDeactivate: "license:deactivate",
+  triggerSuggestion: "trigger:suggestion"
 } as const;
 
 try {
@@ -69,7 +74,16 @@ try {
     saveLayout: (payload: { name: string; mode: string; windows: unknown[] }) =>
       ipcRenderer.invoke(channels.saveLayout, payload),
     deleteLayout: (id: string) => ipcRenderer.invoke(channels.deleteLayout, id),
-    recallLayout: (id: string) => ipcRenderer.invoke(channels.recallLayout, id)
+    recallLayout: (id: string) => ipcRenderer.invoke(channels.recallLayout, id),
+    analyticsWeekly: () => ipcRenderer.invoke(channels.analyticsWeekly),
+    licenseGet: () => ipcRenderer.invoke(channels.licenseGet),
+    licenseActivate: (key: string) => ipcRenderer.invoke(channels.licenseActivate, key),
+    licenseDeactivate: () => ipcRenderer.invoke(channels.licenseDeactivate),
+    onTriggerSuggestion: (callback: (suggestion: unknown) => void) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, suggestion: unknown) => callback(suggestion);
+      ipcRenderer.on(channels.triggerSuggestion, wrapped);
+      return () => { ipcRenderer.removeListener(channels.triggerSuggestion, wrapped); };
+    }
   });
 } catch (error) {
   console.error("[flowos][preload] failed to expose bridge", error);
