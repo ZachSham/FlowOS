@@ -81,7 +81,7 @@ export function saveCapsule(
 
 export function listCapsules(db: DB): ContextCapsule[] {
   const rows = db.prepare(
-    "SELECT * FROM context_capsules ORDER BY created_at DESC LIMIT 20"
+    "SELECT * FROM context_capsules ORDER BY created_at DESC, rowid DESC LIMIT 20"
   ).all() as CapsuleRow[];
   return rows.map(rowToCapsule);
 }

@@ -53,13 +53,14 @@ export function createFocusScoreService(options: FocusScoreOptions): FocusScoreS
 
     const enoughData = switchTimestamps.length >= MIN_EVENTS_FOR_ALERT;
     const scoreLow = update.score < ALERT_THRESHOLD;
-    const notRecentlyAlerted = update.score < lastAlertScore - HYSTERESIS || lastAlertScore > ALERT_THRESHOLD;
+    // Only alert if score was last seen above the threshold (i.e., we recovered since last alert)
+    const notRecentlyAlerted = lastAlertScore > ALERT_THRESHOLD;
 
     if (enoughData && scoreLow && notRecentlyAlerted) {
       lastAlertScore = update.score;
       options.onFragmentationAlert();
     } else if (update.score > ALERT_THRESHOLD + HYSTERESIS) {
-      // Score recovered — reset so next dip can alert again
+      // Score recovered above threshold + hysteresis — allow next dip to alert
       lastAlertScore = 101;
     }
   }
