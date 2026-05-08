@@ -58,6 +58,15 @@ CREATE TABLE IF NOT EXISTS licenses (
   activated_at TEXT NOT NULL,
   expires_at   TEXT
 );
+
+CREATE TABLE IF NOT EXISTS context_capsules (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  vscode_json  TEXT,
+  chrome_json  TEXT,
+  windows_json TEXT,
+  created_at   TEXT NOT NULL
+);
 `;
 
 export function ensureDatabase(dbPath = process.env.FLOWOS_DB_PATH ?? "./data/flowos.db") {

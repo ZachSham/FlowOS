@@ -3,6 +3,8 @@ import { useVoiceDictation } from "./hooks/useVoiceDictation";
 import { AnalyticsPanel } from "./components/AnalyticsPanel";
 import { TriggerToast } from "./components/TriggerToast";
 import { LicensePanel } from "./components/LicensePanel";
+import { CapsulePanel } from "./components/CapsulePanel";
+import { FocusScoreBadge, FocusAlertToast } from "./components/FocusGuardian";
 
 type TrackingEventRecord = {
   timestamp: string;
@@ -89,6 +91,15 @@ interface TriggerSuggestion {
   confidence: number;
 }
 
+interface Capsule {
+  id: string;
+  name: string;
+  created_at: string;
+  vscode: { activeFile: string | null; openTabs: string[] } | null;
+  chrome: { url: string; title: string; pinned: boolean; active: boolean }[];
+  windows: { appName: string }[];
+}
+
 declare global {
   interface Window {
     flowos?: {
@@ -110,6 +121,12 @@ declare global {
       licenseActivate: (key: string) => Promise<unknown>;
       licenseDeactivate: () => Promise<void>;
       onTriggerSuggestion: (cb: (s: TriggerSuggestion) => void) => () => void;
+      capsuleList: () => Promise<Capsule[]>;
+      capsuleSave: (name: string) => Promise<Capsule>;
+      capsuleRestore: (id: string) => Promise<{ ok: boolean; results: string[] }>;
+      capsuleDelete: (id: string) => Promise<void>;
+      onFocusScore: (cb: (update: { score: number }) => void) => () => void;
+      onFocusAlert: (cb: () => void) => () => void;
     };
   }
 }
@@ -133,7 +150,7 @@ const fallbackBootstrap: BootstrapState = {
   }
 };
 
-type AppTab = "home" | "analytics" | "license";
+type AppTab = "home" | "capsule" | "analytics" | "license";
 
 export function App() {
   const [bootstrap, setBootstrap] = useState<BootstrapState>(fallbackBootstrap);
@@ -144,10 +161,18 @@ export function App() {
   const [tab, setTab] = useState<AppTab>("home");
   const [triggerSuggestion, setTriggerSuggestion] = useState<TriggerSuggestion | null>(null);
   const [license, setLicense] = useState<License | null>(null);
+  const [focusScore, setFocusScore] = useState<number | null>(null);
+  const [focusAlert, setFocusAlert] = useState(false);
 
   useEffect(() => {
     const unsub = window.flowos?.onTriggerSuggestion((s) => setTriggerSuggestion(s));
     return () => { unsub?.(); };
+  }, []);
+
+  useEffect(() => {
+    const unsubScore = window.flowos?.onFocusScore(({ score }) => setFocusScore(score));
+    const unsubAlert = window.flowos?.onFocusAlert(() => setFocusAlert(true));
+    return () => { unsubScore?.(); unsubAlert?.(); };
   }, []);
 
   // Load license on startup so trigger toasts work immediately for Pro users
@@ -380,7 +405,7 @@ export function App() {
 
       {/* ── Tab bar ── */}
       <div className="flex shrink-0 gap-1 px-3 pb-2">
-        {(["home", "analytics", "license"] as AppTab[]).map((t) => (
+        {(["home", "capsule", "analytics", "license"] as AppTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -388,13 +413,25 @@ export function App() {
               tab === t ? "bg-white/[0.10] text-white" : "text-white/30 hover:text-white/60"
             }`}
           >
-            {t === "home" ? "Home" : t === "analytics" ? "Analytics" : "Pro"}
+            {t === "home" ? "Home" : t === "capsule" ? "Resume" : t === "analytics" ? "Analytics" : "Pro"}
           </button>
         ))}
       </div>
 
+      {/* ── Focus alert toast ── */}
+      {focusAlert && focusScore !== null && (
+        <FocusAlertToast
+          score={focusScore}
+          onDismiss={() => setFocusAlert(false)}
+          onEnterFocus={() => {
+            setFocusAlert(false);
+            void handleEnterFlowMode("coding");
+          }}
+        />
+      )}
+
       {/* ── Proactive trigger toast (licensed users only) ── */}
-      {triggerSuggestion && license && (
+      {triggerSuggestion && license && !focusAlert && (
         <TriggerToast
           suggestedMode={triggerSuggestion.suggestedMode}
           reason={triggerSuggestion.reason}
@@ -407,8 +444,18 @@ export function App() {
       )}
 
       {/* ── Non-home tabs ── */}
+      {tab === "capsule" && (
+        <div className="flex-1 overflow-y-auto">
+          <CapsulePanel onStatus={setStatusMessage} />
+        </div>
+      )}
       {tab === "analytics" && (
         <div className="flex-1 overflow-y-auto">
+          {focusScore !== null && (
+            <div className="px-3 pt-3">
+              <FocusScoreBadge score={focusScore} />
+            </div>
+          )}
           <AnalyticsPanel />
         </div>
       )}

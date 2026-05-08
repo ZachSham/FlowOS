@@ -32,7 +32,13 @@ const channels = {
   licenseGet: "license:get",
   licenseActivate: "license:activate",
   licenseDeactivate: "license:deactivate",
-  triggerSuggestion: "trigger:suggestion"
+  triggerSuggestion: "trigger:suggestion",
+  capsuleSave: "capsule:save",
+  capsuleList: "capsule:list",
+  capsuleRestore: "capsule:restore",
+  capsuleDelete: "capsule:delete",
+  focusScore: "focus:score",
+  focusAlert: "focus:alert"
 } as const;
 
 try {
@@ -83,6 +89,20 @@ try {
       const wrapped = (_event: Electron.IpcRendererEvent, suggestion: unknown) => callback(suggestion);
       ipcRenderer.on(channels.triggerSuggestion, wrapped);
       return () => { ipcRenderer.removeListener(channels.triggerSuggestion, wrapped); };
+    },
+    capsuleList: () => ipcRenderer.invoke(channels.capsuleList),
+    capsuleSave: (name: string) => ipcRenderer.invoke(channels.capsuleSave, name),
+    capsuleRestore: (id: string) => ipcRenderer.invoke(channels.capsuleRestore, id),
+    capsuleDelete: (id: string) => ipcRenderer.invoke(channels.capsuleDelete, id),
+    onFocusScore: (callback: (update: { score: number }) => void) => {
+      const wrapped = (_event: Electron.IpcRendererEvent, update: { score: number }) => callback(update);
+      ipcRenderer.on(channels.focusScore, wrapped);
+      return () => { ipcRenderer.removeListener(channels.focusScore, wrapped); };
+    },
+    onFocusAlert: (callback: () => void) => {
+      const wrapped = () => callback();
+      ipcRenderer.on(channels.focusAlert, wrapped);
+      return () => { ipcRenderer.removeListener(channels.focusAlert, wrapped); };
     }
   });
 } catch (error) {

@@ -18,5 +18,11 @@ export const ipcChannels = {
   licenseGet: "license:get",
   licenseActivate: "license:activate",
   licenseDeactivate: "license:deactivate",
-  triggerSuggestion: "trigger:suggestion"
+  triggerSuggestion: "trigger:suggestion",
+  capsuleSave: "capsule:save",
+  capsuleList: "capsule:list",
+  capsuleRestore: "capsule:restore",
+  capsuleDelete: "capsule:delete",
+  focusScore: "focus:score",
+  focusAlert: "focus:alert"
 } as const;

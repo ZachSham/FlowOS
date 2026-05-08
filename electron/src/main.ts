@@ -9,6 +9,8 @@ import { saveLayout, listLayouts, getLayout, deleteLayout } from "./services/lay
 import { recordFocusEvent, upsertDailyStat, getWeeklyRollup, getDailyStats } from "./services/analyticsStore.js";
 import { createContextTriggerService, type ContextTriggerService } from "./services/contextTriggerService.js";
 import { getActiveLicense, saveLicense, removeLicense, validateLicenseKey } from "./services/licenseStore.js";
+import { saveCapsule, listCapsules, getCapsule, deleteCapsule, type CapsuleVscodeState, type CapsuleChromTab, type CapsuleWindowFrame } from "./services/capsuleStore.js";
+import { createFocusScoreService, type FocusScoreService } from "./services/focusScoreService.js";
 import {
   demoSuggestions,
   demoTaskState,
@@ -73,6 +75,7 @@ let activeFlowMode: "coding" | "research" | "auto" | null = null;
 let trackingStartedAt: number | null = null;
 let triggerService: ContextTriggerService | null = null;
 let licenseActivationInProgress = false;
+let focusScoreService: FocusScoreService | null = null;
 let lastFlowRun: FlowRunResult | null = null;
 let flowModeStatus: "idle" | "running" | "completed" | "failed" = "idle";
 const GLOBAL_MIC_SHORTCUT = "CommandOrControl+Shift+K";
@@ -130,6 +133,31 @@ async function bootstrap() {
     },
   });
 
+  focusScoreService = createFocusScoreService({
+    onScoreUpdate: ({ score }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("focus:score", { score });
+      }
+      // Update menu bar title with focus indicator
+      if (menuBarTray) {
+        if (score >= 70) {
+          menuBarTray.setTitle("FlowOS");
+        } else if (score >= 40) {
+          menuBarTray.setTitle("FlowOS ·");
+        } else {
+          menuBarTray.setTitle("FlowOS ··");
+        }
+      }
+    },
+    onFragmentationAlert: () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send("focus:alert");
+      }
+    },
+  });
+
   nativeHelperBridge.onEvent((event) => {
     if (event.event === "helper.ready") {
       swiftHelperStatus = nativeHelperBridge?.getStatus() ?? swiftHelperStatus;
@@ -137,9 +165,12 @@ async function bootstrap() {
 
     trackingSession.record(event);
 
-    if (event.event === "app.activated" && trackingSession.getState().isTracking) {
+    if (event.event === "app.activated") {
       const bundleId = (event.payload as { app?: { bundleId?: string } }).app?.bundleId ?? "";
-      triggerService?.onAppActivated(bundleId, trackingSession.getState().recentEvents);
+      focusScoreService?.recordSwitch(bundleId);
+      if (trackingSession.getState().isTracking) {
+        triggerService?.onAppActivated(bundleId, trackingSession.getState().recentEvents);
+      }
     }
   });
   nativeHelperTelemetry = await startNativeHelperTelemetry(nativeHelperBridge);
@@ -423,6 +454,96 @@ async function bootstrap() {
     removeLicense(db);
   });
 
+  ipcMain.handle(ipcChannels.capsuleList, () => {
+    if (!db) return [];
+    return listCapsules(db);
+  });
+
+  ipcMain.handle(ipcChannels.capsuleDelete, (_event, id: string) => {
+    if (!db) return;
+    deleteCapsule(db, id);
+  });
+
+  ipcMain.handle(ipcChannels.capsuleSave, async (_event, name: string) => {
+    if (!db) throw new Error("DB not ready");
+
+    // Capture VS Code state
+    let vscode: CapsuleVscodeState | null = null;
+    if (latestVscodeSnapshot) {
+      vscode = {
+        activeFile: latestVscodeSnapshot.activeFile,
+        activeLine: latestVscodeSnapshot.activeLine,
+        openTabs: latestVscodeSnapshot.openTabs ?? [],
+        workspaceRoot: latestVscodeSnapshot.workspaceRoot,
+      };
+    }
+
+    // Capture Chrome tabs (exclude incognito, keep non-discarded)
+    const chrome: CapsuleChromTab[] = (latestChromeSnapshot?.tabs ?? [])
+      .filter((t) => !t.incognito && !t.discarded && t.url && !t.url.startsWith("chrome://"))
+      .map((t) => ({ url: t.url, title: t.title, pinned: t.pinned, active: t.active }));
+
+    // Capture window positions from Swift bridge
+    let windows: CapsuleWindowFrame[] = [];
+    try {
+      const snapshot = await nativeHelperBridge?.request("system.snapshot", {}) as { windows?: Array<{ windowId: string; appName: string; bundleId: string; x: number; y: number; width: number; height: number }> } | null;
+      windows = (snapshot?.windows ?? [])
+        .filter((w) => w.width > 100 && w.height > 100)
+        .map((w) => ({ windowId: w.windowId, appName: w.appName, bundleId: w.bundleId, x: w.x, y: w.y, width: w.width, height: w.height }));
+    } catch {
+      // Window capture is best-effort
+    }
+
+    return saveCapsule(db, name.trim() || `Capsule ${new Date().toLocaleDateString()}`, vscode, chrome, windows);
+  });
+
+  ipcMain.handle(ipcChannels.capsuleRestore, async (_event, id: string) => {
+    if (!db) throw new Error("DB not ready");
+    const capsule = getCapsule(db, id);
+    if (!capsule) throw new Error("Capsule not found");
+
+    const results: string[] = [];
+
+    // Restore VS Code active file
+    if (capsule.vscode?.activeFile && realtimeServer) {
+      try {
+        await realtimeServer.requestVscodeCommand("vscode.file.open", {
+          path: capsule.vscode.activeFile,
+          line: capsule.vscode.activeLine ?? 1,
+        });
+        results.push(`VS Code: opened ${capsule.vscode.activeFile}`);
+      } catch {
+        results.push("VS Code: not connected");
+      }
+    }
+
+    // Restore Chrome tabs
+    if (capsule.chrome.length > 0 && realtimeServer) {
+      let opened = 0;
+      for (const tab of capsule.chrome) {
+        try {
+          await realtimeServer.requestChromeCommand("chrome.tab.open", { url: tab.url, active: tab.active, pinned: tab.pinned });
+          opened++;
+        } catch {
+          break; // Chrome not connected
+        }
+      }
+      if (opened > 0) results.push(`Chrome: opened ${opened} tabs`);
+    }
+
+    // Restore window positions
+    if (capsule.windows.length > 0) {
+      try {
+        await flowOrchestrator.applyLayoutFrames(capsule.windows);
+        results.push(`Windows: restored ${capsule.windows.length} positions`);
+      } catch {
+        results.push("Windows: restore failed");
+      }
+    }
+
+    return { ok: true, results };
+  });
+
   function ensureBackgroundWindow() {
     if (!mainWindow || mainWindow.isDestroyed()) {
       mainWindow = createMainWindow({ show: false });
@@ -600,6 +721,8 @@ app.on("before-quit", () => {
   }
   triggerService?.dispose();
   triggerService = null;
+  focusScoreService?.dispose();
+  focusScoreService = null;
   globalShortcut.unregisterAll();
   menuBarTray?.destroy();
   menuBarTray = null;
